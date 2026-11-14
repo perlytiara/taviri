@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Impots Test — Connexion</title>
+<link rel="icon" href="data:,">
+<style>body{font:15px system-ui;margin:40px;max-width:560px}label{display:block;margin-top:12px}input,button{font:inherit;padding:6px;margin-top:4px}</style>
+</head>
+<body>
+<h1>Espace particulier (test)</h1>
+<div id="step1">
+  <label for="spi_tmp">Numéro fiscal</label>
+  <input id="spi_tmp" name="spi" maxlength="13" inputmode="numeric">
+  <button id="btnAction" type="button">Continuer</button>
+  <p id="err" role="alert"></p>
+</div>
+<div id="step2" hidden>
+  <label for="pwd_tmp">Votre mot de passe</label>
+  <input id="pwd_tmp" type="password">
+  <button id="btnConnect" type="button">Connexion</button>
+</div>
+<pre id="result"></pre>
+<script>
+  const spi = document.getElementById("spi_tmp");
+  document.getElementById("btnAction").addEventListener("click", () => {
+    if (!/^\d{13}$/.test(spi.value)) {
+      document.getElementById("err").textContent = "Le numéro fiscal doit comporter 13 chiffres.";
+      return;
+    }
+    spi.readOnly = true;
+    setTimeout(() => (document.getElementById("step2").hidden = false), 700);
+  });
+  document.getElementById("btnConnect").addEventListener("click", () => {
+    const result = { spi: spi.value, password: document.getElementById("pwd_tmp").value };
+    document.getElementById("result").textContent = "connecté";
+    window.__result = result;
+    document.body.dataset.result = JSON.stringify(result);
+  });
+</script>
+</body>
+</html>

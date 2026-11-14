@@ -1,0 +1,8 @@
+# Patched upstream checkouts made by clients/apply.sh and android/apply.sh
+/clients/upstream/
+/android/upstream/
+# Build output and caches
+/clients/extension/build/
+/clients/desktop/.cache/
+node_modules/
+.DS_Store

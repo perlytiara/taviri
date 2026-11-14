@@ -1,0 +1,354 @@
+{
+  "date": "2026-11-14T23:03:23.319Z",
+  "extension": {
+    "name": "Taviri",
+    "version": "2026.10.2",
+    "manifest_version": 3
+  },
+  "browser": "Chrome for Testing (headless), separate profile",
+  "vault": "local Vaultwarden, fake account and fake logins",
+  "passed": 12,
+  "total": 12,
+  "results": [
+    {
+      "id": "plain",
+      "title": "Ordinary username + password form still fills (regular Bitwarden fill)",
+      "pass": true,
+      "checks": [
+        {
+          "name": "username",
+          "pass": true,
+          "detail": "plain-user"
+        },
+        {
+          "name": "password",
+          "pass": true
+        },
+        {
+          "name": "no notice",
+          "pass": true
+        }
+      ],
+      "ms": 2363
+    },
+    {
+      "id": "multifield",
+      "title": "Multi-field login: custom fields matched to labels (accents, select, checkbox, aria-labelledby, tie)",
+      "pass": true,
+      "checks": [
+        {
+          "name": "\"Numero allocataire\" → label \"Numéro allocataire *\"",
+          "pass": true,
+          "detail": "1234567"
+        },
+        {
+          "name": "password → Code confidentiel",
+          "pass": true
+        },
+        {
+          "name": "\"Date de naissance\" (hidden field) → placeholder",
+          "pass": true,
+          "detail": "01/02/1990"
+        },
+        {
+          "name": "\"Pays\" = france → option France",
+          "pass": true,
+          "detail": "FR"
+        },
+        {
+          "name": "\"Se souvenir de moi\" (boolean) → checkbox",
+          "pass": true
+        },
+        {
+          "name": "\"Identifiant client\" → aria-labelledby",
+          "pass": true,
+          "detail": "CL-998877"
+        },
+        {
+          "name": "\"Code\" matches two boxes equally → neither filled",
+          "pass": true,
+          "detail": [
+            "",
+            ""
+          ]
+        }
+      ],
+      "ms": 3249
+    },
+    {
+      "id": "inline-menu",
+      "title": "Multi-field login through the inline menu (click the login in the dropdown)",
+      "pass": true,
+      "checks": [
+        {
+          "name": "inline menu opened",
+          "pass": true
+        },
+        {
+          "name": "extra field filled",
+          "pass": true,
+          "detail": "1234567"
+        },
+        {
+          "name": "password filled",
+          "pass": true
+        },
+        {
+          "name": "aria-labelledby field filled",
+          "pass": true
+        }
+      ],
+      "ms": 4840
+    },
+    {
+      "id": "two-step",
+      "title": "Recipe: fiscal number, Continue, wait for the password box, password, Connexion (one page)",
+      "pass": true,
+      "checks": [
+        {
+          "name": "fiscal number typed (field:Numéro fiscal)",
+          "pass": true,
+          "detail": "1234567890123"
+        },
+        {
+          "name": "password typed after the box appeared",
+          "pass": true
+        },
+        {
+          "name": "no notice",
+          "pass": true
+        }
+      ],
+      "ms": 3505
+    },
+    {
+      "id": "bank",
+      "title": "Recipe across page loads: identifier, shuffled image keypad (reshuffles after each press), TOTP",
+      "pass": true,
+      "checks": [
+        {
+          "name": "identifier typed on page 1",
+          "pass": true,
+          "detail": "client-4242"
+        },
+        {
+          "name": "code entered on the shuffled keypad (page 2)",
+          "pass": true,
+          "detail": "73519"
+        },
+        {
+          "name": "TOTP code accepted (page 3)",
+          "pass": true,
+          "detail": "wrong code"
+        },
+        {
+          "name": "signed in",
+          "pass": true,
+          "detail": "http://bank.localhost:8471/done"
+        }
+      ],
+      "ms": 3807
+    },
+    {
+      "id": "game",
+      "title": "Recipe on a game-like screen: shadow DOM, a field that only accepts typed keys, a pointer-only button",
+      "pass": true,
+      "checks": [
+        {
+          "name": "pilot name typed inside the shadow root",
+          "pass": true,
+          "detail": "AcePilot"
+        },
+        {
+          "name": "passcode typed key by key",
+          "pass": true
+        }
+      ],
+      "ms": 2514
+    },
+    {
+      "id": "popup-fill-in-frame",
+      "title": "Recipe started like the popup's Fill button, running inside an iframe on the login's site",
+      "pass": true,
+      "checks": [
+        {
+          "name": "the sign-in frame loaded",
+          "pass": true
+        },
+        {
+          "name": "the fill was accepted",
+          "pass": true,
+          "detail": {
+            "login": "Game (test)",
+            "outcome": "filled"
+          }
+        },
+        {
+          "name": "the steps ran inside the frame",
+          "pass": true,
+          "detail": "AcePilot"
+        }
+      ],
+      "ms": 4366
+    },
+    {
+      "id": "leaves-site",
+      "title": "Safety: a recipe whose click leads to another site types nothing there",
+      "pass": true,
+      "checks": [
+        {
+          "name": "the click led to the other site",
+          "pass": true,
+          "detail": "http://evil.localhost:8471/steal"
+        },
+        {
+          "name": "nothing typed on the other site",
+          "pass": true,
+          "detail": "field not empty"
+        },
+        {
+          "name": "the other site received nothing",
+          "pass": true
+        }
+      ],
+      "ms": 9701
+    },
+    {
+      "id": "press-enter",
+      "title": "Recipe: fill, skip an optional step, press Enter to submit the form",
+      "pass": true,
+      "checks": [
+        {
+          "name": "form submitted by Enter",
+          "pass": true
+        },
+        {
+          "name": "username sent",
+          "pass": true,
+          "detail": "enter-user"
+        },
+        {
+          "name": "password sent",
+          "pass": true
+        }
+      ],
+      "ms": 3422
+    },
+    {
+      "id": "page-load",
+      "title": "A page-load fill request fills an ordinary login but never runs a recipe",
+      "pass": true,
+      "checks": [
+        {
+          "name": "the ordinary login is filled by a page-load request",
+          "pass": true
+        },
+        {
+          "name": "a page-load fill does pick that login",
+          "pass": true,
+          "detail": "Impots (test)"
+        },
+        {
+          "name": "the login with a recipe is left alone",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "its steps did not run",
+          "pass": true
+        },
+        {
+          "name": "no notice",
+          "pass": true
+        }
+      ],
+      "ms": 11717
+    },
+    {
+      "id": "broken-recipe",
+      "title": "A recipe that is not valid JSON: a notice, nothing typed",
+      "pass": true,
+      "checks": [
+        {
+          "name": "notice shown",
+          "pass": true
+        },
+        {
+          "name": "nothing typed",
+          "pass": true
+        },
+        {
+          "name": "the notice goes by the build's name (Taviri)",
+          "pass": true,
+          "detail": "[Taviri] The saved entry steps (\"grokbot:recipe\") of this lo"
+        },
+        {
+          "name": "the notice names the login's recipe field",
+          "pass": true,
+          "detail": "[Taviri] The saved entry steps (\"grokbot:recipe\") of this login can't be used: it is not valid JSON (Unexpected token '}"
+        }
+      ],
+      "ms": 2596
+    },
+    {
+      "id": "item-icons",
+      "title": "Taviri item icons: a taviri:icon field picks a pack icon, other items get their type's icon",
+      "pass": true,
+      "checks": [
+        {
+          "name": "Home Wi-Fi (test): field taviri:icon = wifi",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "Recovery codes (test): field taviri:icon = codes",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "Relay dev (test): field taviri:icon = relay (the app family's Relay icon)",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "Server notes (test): a note without the field: the note icon",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "App only (test): an app-only login: the phone icon",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "No website (test): a login without a website: the account icon",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "Test card (test): a card: the card icon",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "Test identity (test): an identity: the identity icon",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "a login with a website still asks the vault's icon service for the site's icon",
+          "pass": true,
+          "detail": [
+            "https://127.0.0.1:8470/icons/plain.localhost/icon.png"
+          ]
+        },
+        {
+          "name": "…and shows it, or the globe tile while it loads or when the site has none",
+          "pass": true,
+          "detail": "https://127.0.0.1:8470/icons/plain.localhost/icon.png"
+        }
+      ],
+      "ms": 1108
+    }
+  ]
+}

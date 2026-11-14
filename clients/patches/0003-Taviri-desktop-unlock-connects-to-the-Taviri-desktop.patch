@@ -1,0 +1,165 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: owner <owner@localhost>
+Date: Sat, 14 Nov 2026 22:19:51 +0100
+Subject: [PATCH 03/11] Taviri: desktop unlock connects to the Taviri desktop
+ app
+
+The extension's native-messaging host comes from nativeMessagingHost in
+webpack/smartfill-brand/brand.json (io.github.perlytiara.taviri), injected at
+build time, in both the native messaging background and the desktop IPC
+transport. The extension therefore never talks to the official Bitwarden
+desktop app; without the setting (tests, SMARTFILL_BRANDING=off) it keeps
+Bitwarden's com.8bit.bitwarden.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ apps/browser/SMARTFILL.md                     | 27 ++++++++++---------
+ .../smartfill/smartfill-native-host.ts        | 11 ++++++++
+ .../background/nativeMessaging.background.ts  |  3 ++-
+ .../ipc/transports/desktop-ipc.transport.ts   |  3 ++-
+ apps/browser/webpack.base.js                  |  6 +++++
+ .../browser/webpack/smartfill-brand/README.md |  3 +++
+ .../webpack/smartfill-brand/brand.json        |  3 ++-
+ 7 files changed, 40 insertions(+), 16 deletions(-)
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-native-host.ts
+
+diff --git a/apps/browser/SMARTFILL.md b/apps/browser/SMARTFILL.md
+index 66d4b5e..462edad 100644
+--- a/apps/browser/SMARTFILL.md
++++ b/apps/browser/SMARTFILL.md
+@@ -12,19 +12,20 @@ terms. Do not publish this build to an extension store.
+ All new code lives in `src/autofill/smartfill/`; upstream files are touched as little as possible
+ and every change there is marked with a `Smartfill fork:` comment.
+ 
+-| Area                                                                 | Change                                                                                                                                                                                                                                                                                                          |
+-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+-| `src/autofill/smartfill/smartfill-recipe-format.ts`                  | The `grokbot:recipe` format: parsing, validation, values (`username`, `password`, `totp`, `field:<name>`, `text:<words>`).                                                                                                                                                                                      |
+-| `src/autofill/smartfill/smartfill-field-matching.ts`                 | Matching a login's extra custom fields to page controls (case- and accent-insensitive, exact before partial, ties left empty).                                                                                                                                                                                  |
+-| `src/autofill/smartfill/smartfill-recipe-runner.ts`                  | Content script: runs the steps in a frame (fill, click, wait, keypad, press), reports progress, shows a notice on errors.                                                                                                                                                                                       |
+-| `src/autofill/smartfill/smartfill-recipe.background.ts`              | Background: decides when a recipe runs, resolves values, picks the frame, resumes after a page load only if the page is still on the login's site.                                                                                                                                                              |
+-| `src/autofill/services/autofill.service.ts`                          | `doAutoFill` hands logins with a recipe to the recipe runner; a login's plain-named custom fields use the shared matching rules; the recipe field is never typed into a page.                                                                                                                                   |
+-| `src/autofill/background/autofill-orchestrator.ts`                   | Recipes never run on page-load fills; frames without form fields are kept for logins with a recipe.                                                                                                                                                                                                             |
+-| `src/autofill/content/autofill-init.ts`                              | Message handlers for the recipe runner.                                                                                                                                                                                                                                                                         |
+-| `src/autofill/services/insert-autofill-content.service.ts`           | Drop-downs take the option whose value or text matches; `oui` / `on` tick a checkbox; a public fill-one-element method.                                                                                                                                                                                         |
+-| `src/autofill/services/collect-autofill-content.service.ts`          | Collects the text of `aria-labelledby` targets as a label.                                                                                                                                                                                                                                                      |
+-| `src/background/main.background.ts`                                  | Creates and starts the recipe background.                                                                                                                                                                                                                                                                       |
+-| `webpack/manifest.js`, `webpack.base.js`, `webpack/smartfill-brand/` | The build goes by its own name, set once in `smartfill-brand/brand.json` (currently "Taviri"), says in its description that it is based on Bitwarden, uses its own icons and Firefox add-on id, and carries `LICENSE_GPL.txt` and `NOTICE.txt`. `SMARTFILL_BRANDING=off` builds with upstream's name and icons. |
++| Area                                                                                                                                                      | Change                                                                                                                                                                                                                                                                                                          |
++| --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
++| `src/autofill/smartfill/smartfill-recipe-format.ts`                                                                                                       | The `grokbot:recipe` format: parsing, validation, values (`username`, `password`, `totp`, `field:<name>`, `text:<words>`).                                                                                                                                                                                      |
++| `src/autofill/smartfill/smartfill-field-matching.ts`                                                                                                      | Matching a login's extra custom fields to page controls (case- and accent-insensitive, exact before partial, ties left empty).                                                                                                                                                                                  |
++| `src/autofill/smartfill/smartfill-recipe-runner.ts`                                                                                                       | Content script: runs the steps in a frame (fill, click, wait, keypad, press), reports progress, shows a notice on errors.                                                                                                                                                                                       |
++| `src/autofill/smartfill/smartfill-recipe.background.ts`                                                                                                   | Background: decides when a recipe runs, resolves values, picks the frame, resumes after a page load only if the page is still on the login's site.                                                                                                                                                              |
++| `src/autofill/services/autofill.service.ts`                                                                                                               | `doAutoFill` hands logins with a recipe to the recipe runner; a login's plain-named custom fields use the shared matching rules; the recipe field is never typed into a page.                                                                                                                                   |
++| `src/autofill/background/autofill-orchestrator.ts`                                                                                                        | Recipes never run on page-load fills; frames without form fields are kept for logins with a recipe.                                                                                                                                                                                                             |
++| `src/autofill/content/autofill-init.ts`                                                                                                                   | Message handlers for the recipe runner.                                                                                                                                                                                                                                                                         |
++| `src/autofill/services/insert-autofill-content.service.ts`                                                                                                | Drop-downs take the option whose value or text matches; `oui` / `on` tick a checkbox; a public fill-one-element method.                                                                                                                                                                                         |
++| `src/autofill/services/collect-autofill-content.service.ts`                                                                                               | Collects the text of `aria-labelledby` targets as a label.                                                                                                                                                                                                                                                      |
++| `src/background/main.background.ts`                                                                                                                       | Creates and starts the recipe background.                                                                                                                                                                                                                                                                       |
++| `webpack/manifest.js`, `webpack.base.js`, `webpack/smartfill-brand/`                                                                                      | The build goes by its own name, set once in `smartfill-brand/brand.json` (currently "Taviri"), says in its description that it is based on Bitwarden, uses its own icons and Firefox add-on id, and carries `LICENSE_GPL.txt` and `NOTICE.txt`. `SMARTFILL_BRANDING=off` builds with upstream's name and icons. |
++| `src/autofill/smartfill/smartfill-native-host.ts`, `src/background/nativeMessaging.background.ts`, `src/platform/ipc/transports/desktop-ipc.transport.ts` | Desktop unlock connects to the Taviri desktop app's native-messaging host (`nativeMessagingHost` in `smartfill-brand/brand.json`, `io.github.perlytiara.taviri`), never to the official Bitwarden app.                                                                                                          |
+ 
+ The format is shared with the Grok Bot Bitwarden connector; its specification is
+ `docs/recipes.md`.
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-native-host.ts b/apps/browser/src/autofill/smartfill/smartfill-native-host.ts
+new file mode 100644
+index 0000000..41ae8e6
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-native-host.ts
+@@ -0,0 +1,11 @@
++/**
++ * Taviri fork — the name of the desktop app's native-messaging host the extension connects to
++ * (desktop unlock / biometrics). It comes from `nativeMessagingHost` in
++ * `webpack/smartfill-brand/brand.json`, injected at build time, so the extension only ever talks to
++ * the Taviri desktop app and never to the official Bitwarden one. Without the build setting (tests,
++ * `SMARTFILL_BRANDING=off`) it is Bitwarden's own host name.
++ */
++export const BITWARDEN_NATIVE_MESSAGING_HOST = "com.8bit.bitwarden";
++
++export const NATIVE_MESSAGING_HOST: string =
++  process.env.SMARTFILL_NATIVE_MESSAGING_HOST || BITWARDEN_NATIVE_MESSAGING_HOST;
+diff --git a/apps/browser/src/background/nativeMessaging.background.ts b/apps/browser/src/background/nativeMessaging.background.ts
+index eb12f06..162303d 100644
+--- a/apps/browser/src/background/nativeMessaging.background.ts
++++ b/apps/browser/src/background/nativeMessaging.background.ts
+@@ -13,6 +13,7 @@ import {
+   SymmetricCryptoKey,
+ } from "@bitwarden/legacy-crypto";
+ 
++import { NATIVE_MESSAGING_HOST } from "../autofill/smartfill/smartfill-native-host";
+ import { BrowserApi } from "../platform/browser/browser-api";
+ 
+ const MessageValidTimeout = 10 * 1000;
+@@ -109,7 +110,7 @@ export class NativeMessagingBackground {
+     this.appId = appId;
+ 
+     return new Promise<void>((resolve, reject) => {
+-      this.port = BrowserApi.connectNative("com.8bit.bitwarden");
++      this.port = BrowserApi.connectNative(NATIVE_MESSAGING_HOST);
+ 
+       this.connecting = true;
+ 
+diff --git a/apps/browser/src/platform/ipc/transports/desktop-ipc.transport.ts b/apps/browser/src/platform/ipc/transports/desktop-ipc.transport.ts
+index f7970fd..ce690c6 100644
+--- a/apps/browser/src/platform/ipc/transports/desktop-ipc.transport.ts
++++ b/apps/browser/src/platform/ipc/transports/desktop-ipc.transport.ts
+@@ -12,6 +12,7 @@ import {
+   ipcRequestDiscover,
+ } from "@bitwarden/sdk-internal";
+ 
++import { NATIVE_MESSAGING_HOST } from "../../../autofill/smartfill/smartfill-native-host";
+ import { BrowserApi } from "../../browser/browser-api";
+ 
+ import { DESTINATION_UNREACHABLE_ERROR } from "./errors";
+@@ -104,7 +105,7 @@ export class DesktopIpcTransport {
+ 
+     let activePort: NativePort | undefined;
+     try {
+-      const port = BrowserApi.connectNative("com.8bit.bitwarden");
++      const port = BrowserApi.connectNative(NATIVE_MESSAGING_HOST);
+       activePort = port;
+ 
+       let resolveReady: () => void;
+diff --git a/apps/browser/webpack.base.js b/apps/browser/webpack.base.js
+index 0e6d151..306e8f5 100644
+--- a/apps/browser/webpack.base.js
++++ b/apps/browser/webpack.base.js
+@@ -141,6 +141,12 @@ module.exports.buildConfig = function buildConfig(params) {
+         BW_DETECT_SYNC_BOUNDARIES: JSON.stringify(
+           process.env.BW_DETECT_SYNC_BOUNDARIES === "true" || ENV === "development",
+         ),
++        // Smartfill fork: the Taviri desktop app's native-messaging host (see smartfill-brand).
++        SMARTFILL_NATIVE_MESSAGING_HOST: JSON.stringify(
++          process.env.SMARTFILL_BRANDING === "off"
++            ? ""
++            : require("./webpack/smartfill-brand/brand.json").nativeMessagingHost || "",
++        ),
+       },
+     }),
+     new webpack.EnvironmentPlugin({
+diff --git a/apps/browser/webpack/smartfill-brand/README.md b/apps/browser/webpack/smartfill-brand/README.md
+index fcc6a74..6f44c8b 100644
+--- a/apps/browser/webpack/smartfill-brand/README.md
++++ b/apps/browser/webpack/smartfill-brand/README.md
+@@ -6,6 +6,9 @@ Everything that names or pictures this build lives in this folder.
+   extension's name, short name, toolbar title and sidebar title, and the description says it is
+   based on `basedOn`. The in-page notice of the fill steps reads the name from the built manifest.
+   `firefoxAddonId` is the Firefox add-on id; changing it makes Firefox see a different add-on.
++- **`nativeMessagingHost`** (in `brand.json`): the native-messaging host the extension connects to
++  for desktop unlock. It is the Taviri desktop app's (`io.github.perlytiara.taviri`), so the
++  extension never talks to the official Bitwarden app; the desktop fork reads the same key.
+ - **`images/`**: toolbar and extension icons. Files here replace the files of the same name in
+   `src/images` at build time: `icon16.png`, `icon32.png`, `icon48.png`, `icon96.png`,
+   `icon128.png` (each also as `_gray`, shown when logged out), `icon19.png`, `icon38.png` (also as
+diff --git a/apps/browser/webpack/smartfill-brand/brand.json b/apps/browser/webpack/smartfill-brand/brand.json
+index 4011251..981eafa 100644
+--- a/apps/browser/webpack/smartfill-brand/brand.json
++++ b/apps/browser/webpack/smartfill-brand/brand.json
+@@ -1,5 +1,6 @@
+ {
+   "name": "Taviri",
+   "basedOn": "Bitwarden",
+-  "firefoxAddonId": "browser-extension@taviri.invalid"
++  "firefoxAddonId": "browser-extension@taviri.invalid",
++  "nativeMessagingHost": "io.github.perlytiara.taviri"
+ }

@@ -1,0 +1,156 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: owner <owner@localhost>
+Date: Sun, 15 Nov 2026 00:05:35 +0100
+Subject: [PATCH 08/11] Taviri: grokbot: fields are settings too
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Custom fields named `taviri:…` or `grokbot:…` hold settings (recipes,
+item icons) and are never typed into pages or offered as extra fields,
+the same rule as the Taviri connector 0.3.3.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ apps/browser/SMARTFILL.md                           |  3 ++-
+ .../src/autofill/services/autofill.service.ts       |  6 +++---
+ .../smartfill/smartfill-recipe-format.spec.ts       |  1 +
+ .../autofill/smartfill/smartfill-recipe-format.ts   | 10 +++++-----
+ libs/common/src/vault/icon/taviri-fields.ts         | 13 +++++++++++++
+ libs/common/src/vault/icon/taviri-item-icon.spec.ts |  4 ++++
+ 6 files changed, 28 insertions(+), 9 deletions(-)
+
+diff --git a/apps/browser/SMARTFILL.md b/apps/browser/SMARTFILL.md
+index d395cac..ded28a3 100644
+--- a/apps/browser/SMARTFILL.md
++++ b/apps/browser/SMARTFILL.md
+@@ -50,7 +50,8 @@ The format is shared with the Grok Bot Bitwarden connector; its specification is
+ - Item icons: a `taviri:icon` field changes the item's icon (pack icons show even with website
+   icons turned off, since they come from the app itself); in a branded build, notes, SSH keys,
+   cards, identities and logins without a website get the pack icon of their type instead of the
+-  font icon. Custom fields named `taviri:…` are never typed into pages.
++  font icon. Custom fields named `taviri:…` or `grokbot:…` hold settings and are never typed into
++  pages (same rule as the Taviri connector).
+ 
+ ## Tests
+ 
+diff --git a/apps/browser/src/autofill/services/autofill.service.ts b/apps/browser/src/autofill/services/autofill.service.ts
+index 627a3ff..61a2dfb 100644
+--- a/apps/browser/src/autofill/services/autofill.service.ts
++++ b/apps/browser/src/autofill/services/autofill.service.ts
+@@ -40,7 +40,7 @@ import { CipherService } from "@bitwarden/common/vault/abstractions/cipher.servi
+ import { TotpService } from "@bitwarden/common/vault/abstractions/totp.service";
+ import { FieldType, CipherType } from "@bitwarden/common/vault/enums";
+ import { CipherRepromptType } from "@bitwarden/common/vault/enums/cipher-reprompt-type";
+-import { isTaviriFieldName } from "@bitwarden/common/vault/icon/taviri-fields";
++import { isSettingFieldName } from "@bitwarden/common/vault/icon/taviri-fields";
+ import { CardView } from "@bitwarden/common/vault/models/view/card.view";
+ import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
+ import { FieldView } from "@bitwarden/common/vault/models/view/field.view";
+@@ -742,14 +742,14 @@ export default class AutofillService implements AutofillServiceInterface {
+ 
+     if (fields && fields.length) {
+       // Smartfill fork: keep each name aligned with its field (the index below picks the field)
+-      // and leave out the recipe fields and Taviri's own settings (`taviri:icon`…), which are not
++      // and leave out the recipe fields and settings (`taviri:icon`, `grokbot:…`), which are not
+       // values for the page.
+       const namedFields: FieldView[] = fields.filter(
+         (f) =>
+           f.name != null &&
+           AutofillService.hasValue(f.name) &&
+           !isSmartfillRecipeFieldName(f.name) &&
+-          !isTaviriFieldName(f.name),
++          !isSettingFieldName(f.name),
+       );
+       const fieldNames: string[] = namedFields.map((f) => (f.name as string).toLowerCase());
+       const matchedFieldIndexes = new Set<number>();
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts
+index 8cac782..6e35572 100644
+--- a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts
+@@ -172,6 +172,7 @@ describe("values", () => {
+     const withIcon = login([
+       field("Taviri:Icon", "vault"),
+       field("taviri:recipe", '{"steps":[{"click":"#a"}]}'),
++      field("grokbot:note", "a setting of the connector"),
+       field("Code confidentiel", "4321"),
+     ]);
+     expect(smartfillExtraFields(withIcon).map((f) => f.name)).toEqual(["Code confidentiel"]);
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts
+index bb0fc70..b753ca8 100644
+--- a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts
+@@ -9,7 +9,7 @@
+  * steps is accepted too).
+  */
+ import { FieldType, CipherType } from "@bitwarden/common/vault/enums";
+-import { isTaviriFieldName } from "@bitwarden/common/vault/icon/taviri-fields";
++import { isSettingFieldName } from "@bitwarden/common/vault/icon/taviri-fields";
+ import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
+ 
+ import { smartfillFoldText } from "./smartfill-text";
+@@ -194,9 +194,9 @@ export function smartfillStepTimeout(step: SmartfillRecipeStep): number {
+ }
+ 
+ /**
+- * The custom fields that act as extra login fields: named, not the recipe, not one of Taviri's
+- * own settings (`taviri:icon`…), not linked, with a value. Same filter as the connector's
+- * `customFields`, plus the `taviri:` settings.
++ * The custom fields that act as extra login fields: named, not a recipe, not a setting
++ * (`taviri:…`, `grokbot:…`), not linked, with a value. Same filter as the connector's
++ * `customFields`.
+  */
+ export function smartfillExtraFields(
+   cipher: CipherView,
+@@ -207,7 +207,7 @@ export function smartfillExtraFields(
+         f &&
+         f.name &&
+         !isSmartfillRecipeFieldName(f.name) &&
+-        !isTaviriFieldName(f.name) &&
++        !isSettingFieldName(f.name) &&
+         f.type !== FieldType.Linked &&
+         f.value != null &&
+         f.value !== "",
+diff --git a/libs/common/src/vault/icon/taviri-fields.ts b/libs/common/src/vault/icon/taviri-fields.ts
+index caef0e9..024d056 100644
+--- a/libs/common/src/vault/icon/taviri-fields.ts
++++ b/libs/common/src/vault/icon/taviri-fields.ts
+@@ -8,3 +8,16 @@ export const TAVIRI_ICON_FIELD = "taviri:icon";
+ export function isTaviriFieldName(name: unknown): boolean {
+   return typeof name === "string" && name.trim().toLowerCase().startsWith("taviri:");
+ }
++
++/**
++ * Whether a custom field holds a setting rather than a value for pages: Taviri's own (`taviri:…`)
++ * or the Grok Bot connector's first names (`grokbot:…`). Neither is ever typed into a page, the
++ * same rule as the Taviri connector.
++ */
++export function isSettingFieldName(name: unknown): boolean {
++  if (typeof name !== "string") {
++    return false;
++  }
++  const folded = name.trim().toLowerCase();
++  return folded.startsWith("taviri:") || folded.startsWith("grokbot:");
++}
+diff --git a/libs/common/src/vault/icon/taviri-item-icon.spec.ts b/libs/common/src/vault/icon/taviri-item-icon.spec.ts
+index 31a6848..ddf45bb 100644
+--- a/libs/common/src/vault/icon/taviri-item-icon.spec.ts
++++ b/libs/common/src/vault/icon/taviri-item-icon.spec.ts
+@@ -2,6 +2,7 @@ import { CipherType } from "../enums";
+ import { CipherView } from "../models/view/cipher.view";
+ 
+ import { buildCipherIcon } from "./build-cipher-icon";
++import { isSettingFieldName } from "./taviri-fields";
+ import { TAVIRI_ICON_PACK } from "./taviri-icon-pack";
+ import {
+   isTaviriFieldName,
+@@ -66,6 +67,9 @@ describe("Taviri item icons", () => {
+     ).toBe("note");
+     expect(isTaviriFieldName("taviri:icon")).toBe(true);
+     expect(isTaviriFieldName("grokbot:recipe")).toBe(false);
++    expect(isSettingFieldName(" GrokBot:Recipe")).toBe(true);
++    expect(isSettingFieldName("Taviri:Icon")).toBe(true);
++    expect(isSettingFieldName("Numéro fiscal")).toBe(false);
+   });
+ 
+   it("a pack icon shows even with website icons off, and replaces the favicon", () => {

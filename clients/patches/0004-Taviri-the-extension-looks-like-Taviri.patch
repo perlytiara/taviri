@@ -1,0 +1,1215 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: owner <owner@localhost>
+Date: Sat, 14 Nov 2026 22:53:31 +0100
+Subject: [PATCH 04/11] Taviri: the extension looks like Taviri
+
+- The brand kit's logo, app icon and mark replace Bitwarden's artwork (webpack
+  swaps libs/assets' logo, icon and shield modules and the notification bar's
+  shield for src/autofill/smartfill/brand/; the button in fields uses the mark).
+- Every saturated blue in the stylesheets and UI scripts becomes the brand colour
+  (OKLCH hue rotation, lightness kept, neutral greys untouched).
+- "Bitwarden" becomes the brand name in all locales and page titles, except the
+  copyright, Bitwarden's servers, products and plans, and texts linking to
+  Bitwarden's own site.
+- Toolbar and extension icons are made from the kit's icon.svg.
+
+All of it follows smartfill-brand/brand.json; SMARTFILL_BRANDING=off builds the
+upstream look.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../smartfill/brand/brand-content-shield.ts   |  32 ++++
+ .../smartfill/brand/brand-field-icons.ts      |  14 ++
+ .../autofill/smartfill/brand/brand-icon.ts    |  17 ++
+ .../smartfill/brand/brand-logo.icon.ts        |  20 ++
+ .../autofill/smartfill/brand/brand-shield.ts  |  18 ++
+ apps/browser/src/autofill/utils/svg-icons.ts  |  13 +-
+ apps/browser/tsconfig.build.json              |   3 +-
+ apps/browser/webpack.base.js                  |  18 +-
+ .../webpack/smartfill-brand/brand.json        |   3 +-
+ .../smartfill-brand/images/icon128.png        | Bin 1528 -> 1889 bytes
+ .../smartfill-brand/images/icon128_gray.png   | Bin 1428 -> 1839 bytes
+ .../webpack/smartfill-brand/images/icon16.png | Bin 303 -> 277 bytes
+ .../smartfill-brand/images/icon16_gray.png    | Bin 300 -> 260 bytes
+ .../webpack/smartfill-brand/images/icon19.png | Bin 386 -> 339 bytes
+ .../smartfill-brand/images/icon19_gray.png    | Bin 375 -> 322 bytes
+ .../smartfill-brand/images/icon19_locked.png  | Bin 682 -> 639 bytes
+ .../webpack/smartfill-brand/images/icon32.png | Bin 480 -> 466 bytes
+ .../smartfill-brand/images/icon32_gray.png    | Bin 455 -> 441 bytes
+ .../webpack/smartfill-brand/images/icon38.png | Bin 545 -> 571 bytes
+ .../smartfill-brand/images/icon38_gray.png    | Bin 539 -> 528 bytes
+ .../smartfill-brand/images/icon38_locked.png  | Bin 1169 -> 1190 bytes
+ .../webpack/smartfill-brand/images/icon48.png | Bin 629 -> 741 bytes
+ .../smartfill-brand/images/icon48_gray.png    | Bin 622 -> 703 bytes
+ .../webpack/smartfill-brand/images/icon96.png | Bin 1199 -> 1415 bytes
+ .../smartfill-brand/images/icon96_gray.png    | Bin 1170 -> 1337 bytes
+ apps/browser/webpack/smartfill-brand/index.js | 172 ++++++++++++++++++
+ .../webpack/smartfill-brand/recolor.js        | 152 ++++++++++++++++
+ 27 files changed, 455 insertions(+), 7 deletions(-)
+ create mode 100644 apps/browser/src/autofill/smartfill/brand/brand-content-shield.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/brand/brand-field-icons.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/brand/brand-icon.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/brand/brand-logo.icon.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/brand/brand-shield.ts
+ create mode 100644 apps/browser/webpack/smartfill-brand/index.js
+ create mode 100644 apps/browser/webpack/smartfill-brand/recolor.js
+
+diff --git a/apps/browser/src/autofill/smartfill/brand/brand-content-shield.ts b/apps/browser/src/autofill/smartfill/brand/brand-content-shield.ts
+new file mode 100644
+index 0000000..4df94cc
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/brand/brand-content-shield.ts
+@@ -0,0 +1,32 @@
++/**
++ * Taviri fork — drawn from the brand kit (`brand/` in the Taviri repository, placeholder artwork until the
++ * owner approves it). Used instead of Bitwarden's artwork when the build is branded: webpack swaps
++ * the module in (see `webpack/smartfill-brand`). Colours come from the theme, which the build
++ * recolours from Bitwarden blue to the brand colour.
++ */
++import { css } from "@emotion/css";
++import { html } from "lit";
++
++import { IconProps } from "../../content/components/common-types";
++import { buildIconColorRule, ruleNames, themes } from "../../content/components/constants/styles";
++
++/** The mark in the notification bar, in place of the content scripts' `Shield`. */
++export function Shield({ ariaHidden = true, color, theme }: IconProps) {
++  const shapeColor = color || themes[theme].brandLogo;
++
++  return html`
++    <svg
++      xmlns="http://www.w3.org/2000/svg"
++      viewBox="0 0 64 64"
++      fill="none"
++      aria-hidden="${ariaHidden}"
++    >
++      <path
++        class=${css(buildIconColorRule(shapeColor, ruleNames.fill))}
++        fill-rule="evenodd"
++        clip-rule="evenodd"
++        d="M15 0h34a15 15 0 0 1 15 15v34a15 15 0 0 1-15 15H15A15 15 0 0 1 0 49V15A15 15 0 0 1 15 0ZM27.8 35.08A10 10 0 1 1 36.2 35.08L40 48H24Z"
++      />
++    </svg>
++  `;
++}
+diff --git a/apps/browser/src/autofill/smartfill/brand/brand-field-icons.ts b/apps/browser/src/autofill/smartfill/brand/brand-field-icons.ts
+new file mode 100644
+index 0000000..f3b8ff6
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/brand/brand-field-icons.ts
+@@ -0,0 +1,14 @@
++/**
++ * Taviri fork — drawn from the brand kit (`brand/` in the Taviri repository, placeholder artwork until the
++ * owner approves it). Used instead of Bitwarden's artwork when the build is branded: `svg-icons.ts`
++ * picks these. Colours come from the theme, which the build
++ * recolours from Bitwarden blue to the brand colour.
++ */
++
++/** The button in login fields (in place of the shield). */
++export const smartfillLogoIcon =
++  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 64 64" fill="none"><path fill="#047B62" fill-rule="evenodd" clip-rule="evenodd" d="M15 0h34a15 15 0 0 1 15 15v34a15 15 0 0 1-15 15H15A15 15 0 0 1 0 49V15A15 15 0 0 1 15 0ZM27.8 35.08A10 10 0 1 1 36.2 35.08L40 48H24Z"/></svg>';
++
++/** The same button while the vault is locked: the mark with Bitwarden's padlock badge. */
++export const smartfillLogoLockedIcon =
++  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><g transform="scale(0.21875)"><path fill="#047B62" fill-rule="evenodd" clip-rule="evenodd" d="M15 0h34a15 15 0 0 1 15 15v34a15 15 0 0 1-15 15H15A15 15 0 0 1 0 49V15A15 15 0 0 1 15 0ZM27.8 35.08A10 10 0 1 1 36.2 35.08L40 48H24Z"/></g><circle cx="12.889" cy="12.889" r="4.889" fill="#F8F9FA"/><path fill="#555" d="M11.26 11.717h2.37v-.848c0-.313-.116-.58-.348-.8a1.17 1.17 0 0 0-.838-.332c-.327 0-.606.11-.838.332a1.066 1.066 0 0 0-.347.8v.848Zm3.851.424v2.546a.4.4 0 0 1-.13.3.44.44 0 0 1-.314.124h-4.445a.44.44 0 0 1-.315-.124.4.4 0 0 1-.13-.3V12.14a.4.4 0 0 1 .13-.3.44.44 0 0 1 .315-.124h.148v-.848c0-.542.204-1.008.612-1.397a2.044 2.044 0 0 1 1.462-.583c.568 0 1.056.194 1.463.583.408.39.611.855.611 1.397v.848h.149a.44.44 0 0 1 .315.124.4.4 0 0 1 .13.3Z"/></svg>';
+diff --git a/apps/browser/src/autofill/smartfill/brand/brand-icon.ts b/apps/browser/src/autofill/smartfill/brand/brand-icon.ts
+new file mode 100644
+index 0000000..b312c88
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/brand/brand-icon.ts
+@@ -0,0 +1,17 @@
++/**
++ * Taviri fork — drawn from the brand kit (`brand/` in the Taviri repository, placeholder artwork until the
++ * owner approves it). Used instead of Bitwarden's artwork when the build is branded: webpack swaps
++ * the module in (see `webpack/smartfill-brand`). Colours come from the theme, which the build
++ * recolours from Bitwarden blue to the brand colour.
++ */
++// The `svg` tag is imported by path: the package index re-exports this very module.
++// eslint-disable-next-line no-restricted-imports
++import { svg } from "../../../../../../libs/assets/src/svg/svg";
++
++/** The app icon (keyhole on a rounded square), in place of `BitwardenIcon`. */
++export const BitwardenIcon = svg`
++<svg width="20" height="20" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <rect width="64" height="64" rx="15" class="tw-fill-bw-blue" />
++  <path class="tw-fill-text-alt2" d="M27.8 35.08A10 10 0 1 1 36.2 35.08L40 48H24Z" />
++</svg>
++`;
+diff --git a/apps/browser/src/autofill/smartfill/brand/brand-logo.icon.ts b/apps/browser/src/autofill/smartfill/brand/brand-logo.icon.ts
+new file mode 100644
+index 0000000..2d1ea41
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/brand/brand-logo.icon.ts
+@@ -0,0 +1,20 @@
++/**
++ * Taviri fork — drawn from the brand kit (`brand/` in the Taviri repository, placeholder artwork until the
++ * owner approves it). Used instead of Bitwarden's artwork when the build is branded: webpack swaps
++ * the module in (see `webpack/smartfill-brand`). Colours come from the theme, which the build
++ * recolours from Bitwarden blue to the brand colour.
++ */
++// The `svg` tag is imported by path: the package index re-exports this very module.
++// eslint-disable-next-line no-restricted-imports
++import { svg } from "../../../../../../libs/assets/src/svg/svg";
++
++/** Keyhole mark and wordmark, in place of `BitwardenLogo`. */
++export const BitwardenLogo = svg`
++  <svg viewBox="0 6 161 48" xmlns="http://www.w3.org/2000/svg">
++    <title>Taviri</title>
++    <g transform="translate(0 6) scale(0.75)">
++      <path class="tw-fill-marketing-logo" fill-rule="evenodd" clip-rule="evenodd" d="M15 0h34a15 15 0 0 1 15 15v34a15 15 0 0 1-15 15H15A15 15 0 0 1 0 49V15A15 15 0 0 1 15 0ZM27.8 35.08A10 10 0 1 1 36.2 35.08L40 48H24Z" />
++    </g>
++    <path class="tw-fill-text-main" transform="translate(61.20 43.20) scale(0.01772)" d="M79.1 -1250.9V-1490H1280.7V-1250.9H823.6V0H537.3V-1250.9ZM1805.1 22.4Q1698.7 22.4 1614 -15.6Q1529.3 -53.6 1480.5 -128.3Q1431.8 -203.1 1431.8 -313.5Q1431.8 -407.7 1466.6 -470Q1501.5 -532.2 1561.6 -569.8Q1621.7 -607.5 1697.6 -627Q1773.5 -646.4 1855.5 -654.6Q1952.8 -664.9 2012.9 -673.3Q2073 -681.6 2101.3 -699.8Q2129.5 -717.9 2129.5 -754.8V-759.9Q2129.5 -811.5 2108.2 -847.2Q2086.9 -882.9 2045.7 -901.9Q2004.5 -920.9 1944.1 -920.9Q1883 -920.9 1837.7 -902.2Q1792.4 -883.5 1763.6 -853Q1734.9 -822.5 1721.8 -785.7L1463.8 -833.3Q1494.6 -931.7 1562.7 -997.9Q1630.8 -1064.2 1728.4 -1098.1Q1826.1 -1132 1944 -1132Q2028.4 -1132 2111.1 -1112Q2193.9 -1092 2261.3 -1047.5Q2328.7 -1003 2369 -929.9Q2409.4 -856.8 2409.4 -750V0H2142.8V-154.7H2132.6Q2106.9 -104.9 2062.4 -64.8Q2018 -24.6 1954.1 -1.1Q1890.2 22.4 1805.1 22.4ZM1880.7 -179.3Q1956.4 -179.3 2012.6 -209.3Q2068.7 -239.3 2100 -289.7Q2131.3 -340 2131.3 -400.4V-527.1Q2118.1 -517.2 2089.6 -508.7Q2061.1 -500.3 2025.8 -493.6Q1990.4 -487 1956.3 -482.1Q1922.1 -477.3 1897 -473.9Q1840.1 -466.3 1795.8 -448.2Q1751.4 -430 1726.4 -398.8Q1701.4 -367.6 1701.4 -319.3Q1701.4 -273.5 1724.7 -242.4Q1747.9 -211.2 1788.2 -195.3Q1828.5 -179.3 1880.7 -179.3ZM2991.2 0 2577.3 -1118H2875.5L3071.7 -523.8Q3107 -416.3 3132.6 -306.6Q3158.2 -196.9 3185.4 -82H3120.7Q3147.5 -196.9 3172.9 -306.4Q3198.2 -415.9 3232.5 -523.8L3426.9 -1118H3722.4L3307.6 0ZM3890.3 0V-1118H4170.2V0ZM4030.4 -1270Q3965.4 -1270 3919 -1313.5Q3872.5 -1357.1 3872.5 -1418.1Q3872.5 -1480.3 3919 -1523.4Q3965.4 -1566.4 4030.4 -1566.4Q4095.8 -1566.4 4142.3 -1523.4Q4188.8 -1480.4 4188.8 -1418.1Q4188.8 -1357.1 4142.3 -1313.5Q4095.8 -1270 4030.4 -1270ZM4435.8 0V-1118H4707V-927.1H4719Q4749.6 -1027.4 4823.2 -1080.3Q4896.9 -1133.1 4991.9 -1133.1Q5014.6 -1133.1 5041.5 -1130.8Q5068.3 -1128.4 5087.9 -1124.3V-870.8Q5070 -876.9 5032.8 -881.1Q4995.6 -885.3 4961.9 -885.3Q4891.3 -885.3 4835.3 -855Q4779.2 -824.6 4747.5 -771.1Q4715.7 -717.5 4715.7 -646.9V0ZM5259.5 0V-1118H5539.4V0ZM5399.5 -1270Q5334.6 -1270 5288.1 -1313.5Q5241.7 -1357.1 5241.7 -1418.1Q5241.7 -1480.3 5288.1 -1523.4Q5334.6 -1566.4 5399.5 -1566.4Q5464.9 -1566.4 5511.4 -1523.4Q5557.9 -1480.4 5557.9 -1418.1Q5557.9 -1357.1 5511.4 -1313.5Q5464.9 -1270 5399.5 -1270Z" />
++  </svg>
++`;
+diff --git a/apps/browser/src/autofill/smartfill/brand/brand-shield.ts b/apps/browser/src/autofill/smartfill/brand/brand-shield.ts
+new file mode 100644
+index 0000000..4399639
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/brand/brand-shield.ts
+@@ -0,0 +1,18 @@
++/**
++ * Taviri fork — drawn from the brand kit (`brand/` in the Taviri repository, placeholder artwork until the
++ * owner approves it). Used instead of Bitwarden's artwork when the build is branded: webpack swaps
++ * the module in (see `webpack/smartfill-brand`). Colours come from the theme, which the build
++ * recolours from Bitwarden blue to the brand colour.
++ */
++// The `svg` tag is imported by path: the package index re-exports this very module.
++// eslint-disable-next-line no-restricted-imports
++import { svg } from "../../../../../../libs/assets/src/svg/svg";
++
++/** The one-colour mark, in place of `BitwardenShield`. */
++const BitwardenShield = svg`
++  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
++    <path class="tw-fill-fg-nav" fill-rule="evenodd" clip-rule="evenodd" d="M15 0h34a15 15 0 0 1 15 15v34a15 15 0 0 1-15 15H15A15 15 0 0 1 0 49V15A15 15 0 0 1 15 0ZM27.8 35.08A10 10 0 1 1 36.2 35.08L40 48H24Z" />
++  </svg>
++`;
++
++export { BitwardenShield };
+diff --git a/apps/browser/src/autofill/utils/svg-icons.ts b/apps/browser/src/autofill/utils/svg-icons.ts
+index 343acc0..3557bb6 100644
+--- a/apps/browser/src/autofill/utils/svg-icons.ts
++++ b/apps/browser/src/autofill/utils/svg-icons.ts
+@@ -1,8 +1,13 @@
+-export const logoIcon =
+-  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" fill="none"><path fill="#175DDC" d="M12.66.175A.566.566 0 0 0 12.25 0H1.75a.559.559 0 0 0-.409.175.561.561 0 0 0-.175.41v7c.002.532.105 1.06.305 1.554.189.488.444.948.756 1.368.322.42.682.81 1.076 1.163.365.335.75.649 1.152.939.35.248.718.483 1.103.706.385.222.656.372.815.45.16.08.29.141.386.182A.53.53 0 0 0 7 14a.509.509 0 0 0 .238-.055c.098-.043.225-.104.387-.182.162-.079.438-.23.816-.45.378-.222.75-.459 1.102-.707.403-.29.788-.604 1.154-.939a8.435 8.435 0 0 0 1.076-1.163c.312-.42.567-.88.757-1.367a4.19 4.19 0 0 0 .304-1.555v-7a.55.55 0 0 0-.174-.407Z"/><path fill="#fff" d="M7 12.365s4.306-2.18 4.306-4.717V1.5H7v10.865Z"/></svg>';
++import { smartfillLogoIcon, smartfillLogoLockedIcon } from "../smartfill/brand/brand-field-icons";
+ 
+-export const logoLockedIcon =
+-  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><g clip-path="url(#a)"><path fill="#175DDC" d="M12.66.175A.566.566 0 0 0 12.25 0H1.75a.559.559 0 0 0-.409.175.561.561 0 0 0-.175.41v7c.002.532.105 1.06.305 1.554.189.488.444.948.756 1.368.322.42.682.81 1.076 1.163.365.335.75.649 1.152.939.35.248.718.483 1.103.706.385.222.656.372.815.45.16.08.29.141.386.182A.53.53 0 0 0 7 14a.509.509 0 0 0 .238-.055c.098-.043.225-.104.387-.182.162-.079.438-.23.816-.45.378-.222.75-.459 1.102-.707.403-.29.788-.604 1.154-.939a8.435 8.435 0 0 0 1.076-1.163c.312-.42.567-.88.757-1.367a4.19 4.19 0 0 0 .304-1.555v-7a.55.55 0 0 0-.174-.407Z"/><path fill="#fff" d="M7 12.365s4.306-2.18 4.306-4.717V1.5H7v10.865Z"/><circle cx="12.889" cy="12.889" r="4.889" fill="#F8F9FA"/><path fill="#555" d="M11.26 11.717h2.37v-.848c0-.313-.116-.58-.348-.8a1.17 1.17 0 0 0-.838-.332c-.327 0-.606.11-.838.332a1.066 1.066 0 0 0-.347.8v.848Zm3.851.424v2.546a.4.4 0 0 1-.13.3.44.44 0 0 1-.314.124h-4.445a.44.44 0 0 1-.315-.124.4.4 0 0 1-.13-.3V12.14a.4.4 0 0 1 .13-.3.44.44 0 0 1 .315-.124h.148v-.848c0-.542.204-1.008.612-1.397a2.044 2.044 0 0 1 1.462-.583c.568 0 1.056.194 1.463.583.408.39.611.855.611 1.397v.848h.149a.44.44 0 0 1 .315.124.4.4 0 0 1 .13.3Z"/></g><defs><clipPath id="a"><rect width="16" height="16" fill="#fff" rx="2"/></clipPath></defs></svg>';
++// Smartfill fork: a branded build shows its own mark in fields (smartfill/brand).
++export const logoIcon = process.env.SMARTFILL_BRAND_NAME
++  ? smartfillLogoIcon
++  : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" fill="none"><path fill="#175DDC" d="M12.66.175A.566.566 0 0 0 12.25 0H1.75a.559.559 0 0 0-.409.175.561.561 0 0 0-.175.41v7c.002.532.105 1.06.305 1.554.189.488.444.948.756 1.368.322.42.682.81 1.076 1.163.365.335.75.649 1.152.939.35.248.718.483 1.103.706.385.222.656.372.815.45.16.08.29.141.386.182A.53.53 0 0 0 7 14a.509.509 0 0 0 .238-.055c.098-.043.225-.104.387-.182.162-.079.438-.23.816-.45.378-.222.75-.459 1.102-.707.403-.29.788-.604 1.154-.939a8.435 8.435 0 0 0 1.076-1.163c.312-.42.567-.88.757-1.367a4.19 4.19 0 0 0 .304-1.555v-7a.55.55 0 0 0-.174-.407Z"/><path fill="#fff" d="M7 12.365s4.306-2.18 4.306-4.717V1.5H7v10.865Z"/></svg>';
++
++export const logoLockedIcon = process.env.SMARTFILL_BRAND_NAME
++  ? smartfillLogoLockedIcon
++  : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><g clip-path="url(#a)"><path fill="#175DDC" d="M12.66.175A.566.566 0 0 0 12.25 0H1.75a.559.559 0 0 0-.409.175.561.561 0 0 0-.175.41v7c.002.532.105 1.06.305 1.554.189.488.444.948.756 1.368.322.42.682.81 1.076 1.163.365.335.75.649 1.152.939.35.248.718.483 1.103.706.385.222.656.372.815.45.16.08.29.141.386.182A.53.53 0 0 0 7 14a.509.509 0 0 0 .238-.055c.098-.043.225-.104.387-.182.162-.079.438-.23.816-.45.378-.222.75-.459 1.102-.707.403-.29.788-.604 1.154-.939a8.435 8.435 0 0 0 1.076-1.163c.312-.42.567-.88.757-1.367a4.19 4.19 0 0 0 .304-1.555v-7a.55.55 0 0 0-.174-.407Z"/><path fill="#fff" d="M7 12.365s4.306-2.18 4.306-4.717V1.5H7v10.865Z"/><circle cx="12.889" cy="12.889" r="4.889" fill="#F8F9FA"/><path fill="#555" d="M11.26 11.717h2.37v-.848c0-.313-.116-.58-.348-.8a1.17 1.17 0 0 0-.838-.332c-.327 0-.606.11-.838.332a1.066 1.066 0 0 0-.347.8v.848Zm3.851.424v2.546a.4.4 0 0 1-.13.3.44.44 0 0 1-.314.124h-4.445a.44.44 0 0 1-.315-.124.4.4 0 0 1-.13-.3V12.14a.4.4 0 0 1 .13-.3.44.44 0 0 1 .315-.124h.148v-.848c0-.542.204-1.008.612-1.397a2.044 2.044 0 0 1 1.462-.583c.568 0 1.056.194 1.463.583.408.39.611.855.611 1.397v.848h.149a.44.44 0 0 1 .315.124.4.4 0 0 1 .13.3Z"/></g><defs><clipPath id="a"><rect width="16" height="16" fill="#fff" rx="2"/></clipPath></defs></svg>';
+ 
+ export const globeIcon =
+   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="#1B2029" fill-rule="evenodd" d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12s4.477 10 10 10 10-4.477 10-10Zm-7.806 6.4c-.825 1.65-1.688 2.1-2.194 2.1-.507 0-1.369-.45-2.194-2.1-.704-1.407-1.2-3.384-1.291-5.65h6.97c-.09 2.266-.587 4.243-1.291 5.65Zm1.291-7.15h-6.97c.09-2.266.587-4.243 1.291-5.65.825-1.65 1.688-2.1 2.194-2.1.507 0 1.369.45 2.194 2.1.704 1.407 1.2 3.384 1.291 5.65Zm1.501 1.5c-.108 2.928-.847 5.505-1.946 7.19a8.507 8.507 0 0 0 5.427-7.19h-3.48Zm3.481-1.5h-3.48c-.11-2.928-.848-5.505-1.947-7.19a8.507 8.507 0 0 1 5.427 7.19Zm-13.453 0c.108-2.928.847-5.505 1.946-7.19a8.507 8.507 0 0 0-5.427 7.19h3.48Zm-3.481 1.5a8.507 8.507 0 0 0 5.427 7.19c-1.099-1.685-1.838-4.262-1.946-7.19H3.533Z" clip-rule="evenodd"/></svg>';
+diff --git a/apps/browser/tsconfig.build.json b/apps/browser/tsconfig.build.json
+index 42ac111..b01434f 100644
+--- a/apps/browser/tsconfig.build.json
++++ b/apps/browser/tsconfig.build.json
+@@ -26,7 +26,8 @@
+     "src/autofill/overlay/inline-menu/pages/menu-container/bootstrap-autofill-inline-menu-container.ts",
+     "src/vault/content/send-on-installed-message.ts",
+     "src/vault/content/send-popup-open-message.ts",
+-    "../../libs/common/src/autofill/constants"
++    "../../libs/common/src/autofill/constants",
++    "src/autofill/smartfill/brand"
+   ],
+   "exclude": ["**/*.spec.ts", "**/*.test.ts"]
+ }
+diff --git a/apps/browser/webpack.base.js b/apps/browser/webpack.base.js
+index 306e8f5..273dbed 100644
+--- a/apps/browser/webpack.base.js
++++ b/apps/browser/webpack.base.js
+@@ -9,6 +9,7 @@ const { TsconfigPathsPlugin } = require("tsconfig-paths-webpack-plugin");
+ const configurator = require("./config/config");
+ const manifest = require("./webpack/manifest");
+ const AngularCheckPlugin = require("./webpack/angular-check");
++const smartfillBrand = require("./webpack/smartfill-brand");
+ 
+ module.exports.getEnv = function getEnv(params) {
+   const ENV = params.env || (process.env.ENV = process.env.NODE_ENV);
+@@ -141,6 +142,10 @@ module.exports.buildConfig = function buildConfig(params) {
+         BW_DETECT_SYNC_BOUNDARIES: JSON.stringify(
+           process.env.BW_DETECT_SYNC_BOUNDARIES === "true" || ENV === "development",
+         ),
++        // Smartfill fork: the build's name for the UI drawn in pages ("" = upstream artwork).
++        SMARTFILL_BRAND_NAME: JSON.stringify(
++          smartfillBrand.brandingEnabled ? smartfillBrand.brand.name : "",
++        ),
+         // Smartfill fork: the Taviri desktop app's native-messaging host (see smartfill-brand).
+         SMARTFILL_NATIVE_MESSAGING_HOST: JSON.stringify(
+           process.env.SMARTFILL_BRANDING === "off"
+@@ -166,9 +171,15 @@ module.exports.buildConfig = function buildConfig(params) {
+           ),
+         ]
+       : []),
++    // Smartfill fork: the brand's artwork and colours (webpack/smartfill-brand).
++    ...smartfillBrand.smartfillPlugins(webpack),
+   ];
+ 
+   const plugins = [
++    // Smartfill fork: the brand name in page titles (webpack/smartfill-brand).
++    ...(smartfillBrand.brandingEnabled
++      ? [new smartfillBrand.SmartfillHtmlTitlePlugin(HtmlWebpackPlugin)]
++      : []),
+     new HtmlWebpackPlugin({
+       template: path.resolve(__dirname, "src/popup/index.ejs"),
+       filename: "popup/index.html",
+@@ -212,7 +223,12 @@ module.exports.buildConfig = function buildConfig(params) {
+           transform: manifest.transform(browser),
+         },
+         { from: path.resolve(__dirname, "src/managed_schema.json"), to: "managed_schema.json" },
+-        { from: path.resolve(__dirname, "src/_locales"), to: "_locales" },
++        {
++          from: path.resolve(__dirname, "src/_locales"),
++          to: "_locales",
++          // Smartfill fork: the brand name in the texts (webpack/smartfill-brand).
++          transform: smartfillBrand.rebrandLocaleFile,
++        },
+         // For beta builds (CHANNEL=beta), *_beta.png variants overwrite their default
+         // siblings so the manifest/action/runtime icon paths resolve to beta icons
+         // without any manifest or code changes. Non-beta builds filter *_beta.png
+diff --git a/apps/browser/webpack/smartfill-brand/brand.json b/apps/browser/webpack/smartfill-brand/brand.json
+index 981eafa..f5932ea 100644
+--- a/apps/browser/webpack/smartfill-brand/brand.json
++++ b/apps/browser/webpack/smartfill-brand/brand.json
+@@ -2,5 +2,6 @@
+   "name": "Taviri",
+   "basedOn": "Bitwarden",
+   "firefoxAddonId": "browser-extension@taviri.invalid",
+-  "nativeMessagingHost": "io.github.perlytiara.taviri"
++  "nativeMessagingHost": "io.github.perlytiara.taviri",
++  "colour": "#047B62"
+ }
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon128.png b/apps/browser/webpack/smartfill-brand/images/icon128.png
+index e964b93d39503059544626d439314ee9f3e7f08e..684f38cf236870f1b4bbcc5f17d71db7b7d54a1b 100644
+GIT binary patch
+delta 1875
+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
+N002ovPDHLkV1nT&XE*==
+
+literal 1528
+zcmc(fX)xOf7{>o0A`uj&s#T?}lGc_wc3X-G>L_(qw?Q0L611eNWW|*YZ9}QD?nvEL
+z<4B95;)qop<A|(l>xiQi)s$GRBNExz+3mOeyfe>x%=_t`XXg1OIXl|ONF9*^06@mh
+z*2+~hiTeeGh<cZqUmpNS)Yw@eul-!WVLM?JF^3`CEoxrwv-sAs3d0{l(iB1{E5)9)
+z3`>m~Nexz@+sy;sgy#)tPm73D+fI9Jqgm_X_ef~@VS-XPmi&+my${ya%u<_b%ni0R
+zF!AZgOI6R^q1RLLq6%j^t*E!jgY#PhF&i==a^yfc@&hsG!+(Wwkwj&^%-GZGDceN2
+zM%&#rPhZhoRLiifj5twyu*&_kx62#+*TQoXqxMbDEpsROt5ekcySsQ5#}tm<^BTC>
+zkGNi+y3%hHT)L^~TQY?ikFgM{&-3tY;2PFRu+wCAeo4}V_!U%(#5M<;_H}5L7QyvV
+zC`*ePisLUEqMO?t5q33zr==iDkSqXyF2%Y#$!HDdA8|zxQ3#(AT|-CK`DAR1OU<#0
+zL$9t8SKW?(4$_{t5$H?8B8eV)<0|79!ata4W;O$8pBR3lehNx@$Hc)2#<|c%SvoiK
+z46LBUfX^7lX%x(1E>n*((@$xV(LmTcd_QHou<$(LlwRuFx#nRcr`$J;X|p|EY7q1^
+zt=s>t@jH{rr7f6#^6u+~4yOTKHkqfC4xdFY9W2!BF*L0>K0Cyy%kK!+eZMZ>d^X0E
+zrsKan2#YoIrP12t1G@EwE)ttsA8|J<F&_dBePrparc$r+64ddWbA<0W5Z7hsEPFJ;
+zD>(zbt;lLEhes)D&>3RQn7zc&_Di4Gy{sR7LHQ<8>Vv=OOXrD=$RU{$m}O5OOk8V|
+z`=OAD3o%%2Bv})Yq!RAHP!q5^c86pE?G<g)?XlX4MLL2CV69k2JCUd(&IBpe3gKPm
+z_ClL3oP@I~2=#u>dCnP_Gv?jHc|n>4<D-vpnI+Y|w?Tns{6uSrtcyIKKdBIli%716
+zx)E{O|E)Z<ly}s&R%PZG>*Ad0{f2hogF9~5clP>jWc?Jm=KF^GXKg5Nm$HUPGM$Na
+z>=14!EB%75xkE8}2JC<Ezl#qq8Zkzm2j5cB6T?x9)cN&abb%^&(oJZO$V-P-3uh=2
+z#cK~pInn-UFCQ=5YeJ$c-rCj$W>3NigGHD3?bqkBGplLVg>vBskZ~W+0=u04M{)7T
+z>SP(=;ET!ye!d{ZDip~J-lz9P=4<tpo#H)~{S%uAx<|CpGLc*EyBI`@Nq&OHf^OSi
+zm0xhp<n+G~UtS!_U!SJ1dG&bMp9xVzJB^!e@BGqNArooGsbf{J8%LOMYE}*k{ClXR
+zPjh?i;Atm?1yW8HQ>XXkoEu|Unc5MaX1}}pC7=sL>K}TvH7v^Lt&w^E4qA)5ioiX7
+z97&RPg-1p#Iv3E$Z6|wfVZck`DrE-ibxDXw(DzKQ*MpA@s?EC}q;sCr^P0z<9g;S|
+zp-<^Cl%q`f6tGH>0j?frPz+WGlZxml4l<ObZ^(Aay1+vrc3t>xGuYJQZ|NPV7fjp@
+zc3J3Ss0YV=gycZ7QR^lxu5{Rh&4C@Bv2gf84go2Odmma0H%$;o`u_o6Z6F2AN3#0p
+zo4>v)UEz;vUa>pl#t1*%8=F0#WsAUjFlrXYM%Z-1bSm|4x<pHHrR((x4o)(>Iu{wg
+zXq44-g6gHE&_$M|K!m17<yqAAfa)@HY5mIB<Pq;SESnZT;r+533qj+zKGQv$nj+W!
+zL7cG%(4%%q^^B^N`ZrApMc5V!>G&6&q6M-KZgD`!q0m$<D>p<J!0xi6Rjq|D=`SH=
+B+Cu;U
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon128_gray.png b/apps/browser/webpack/smartfill-brand/images/icon128_gray.png
+index 948b059bdd9bf59222f3c4de160fbfd8284e412a..50e7bb2c64e634157dd8e710b385aafb93af1dc0 100644
+GIT binary patch
+delta 1825
+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
+P00000NkvXXu0mjfbUs87
+
+literal 1428
+zcmeAS@N?(olHy`uVBq!ia0vp^4Is?H1|$#LC7xzrVD<ELaSW-L^X9I7hIF_L`-k_t
+zqnf$jKJr_+-AprfkLeEY4?!6xp6M!HP~5h~<Cx&V3k!qW95gm<+!7Ji=9FnwsWF2u
+z)@$0Xj{zrcBzQfXwQ^Bz%qqugd-thlavb~~uKx2~-F<!*?&u<&+WouAzrT|$a#&=k
+za4~}6Asjt3aJF81&U9^IXm&oQSFG9nD3&iw3!W)XdN=d=JyY|TjK49O&u0cz?23%7
+zZjua~vFYvIzq4;0Tvgd*{)A0-x@KEY`>DeR@AiH@K4Z~Jkp(wvN?!8pTGjaJg{<Gn
+zmFqZH+Ol6=b@kmIhf_hi4vR0&2w%E=|Ah<ln}e1wkbCj(^zW}#d)uch32S(`EbgIV
+z+hZ%=iK|VvU6PUt(sWq7bAS88XY<ll#I9c(Zm_VE>q9~L`@NP=YjX4Sn)MD{ocS#;
+zKR3j0Lck-Ynw^*bov3t{ZJ7P1`&kw9-m3h~H9agsq6s4VKHGl(u-U0}Z)3TwCufp)
+z!k(M|1#6zC_hz>>Pu+3Y@y*HyA7`BZusOYOj<3!}E`xiwpYz3+>Gm6U>3k9}usipk
+zZAxX@ya!=dDw{l5HyGDw?ER{}<K=m7@xPa~1Jihvc^S*9#Ch!f#g5Nx<+{ssL)f~u
+zqQ0SMIm`3A8-zU;Ml)20@lWv%+{CTh@JyyY&-J9<28Ocp^EcO4E)#c?{Kc(vpg@)X
+zX;ehpLFWSnlHyOJJlgiLZs4}q*|whJ${&r>pMQ!SSa*+A)G1&ZBkPB04y^)Hmi{kg
+zTwMA)goQDZEmq>t%KMK#oHcr&(Qy3#(TDR>4~R9mGXNQ?`h22&tO9w<!r6~6y>exJ
+z>|D-Vz9XBpHnaZtGFi0d$HCtkO_T4}9WQUUSLn82;W*BO6HULl^1=Rp|JYp(C3q%;
+z&eT0{{`h{L|Guk2v=&DF<nb)o_e*T~^8brY;5P-21=N)i|MKypZGhvCbjbjQtE{3e
+z_0t@k8@RQ&?(6*JUhuUzz>p>7<?l{KFU#{Ln|^P69{BZlZO(S931`w?em6e;-?4&A
+zt7U;s=z+%<GPeCUE}zN%bjG`@*-y>?)=Am$FSw$pao@>^N2lRa0mG@S8+e%88CG9>
+z^C#0xnR|gu(A}!sw{sU%xA?KnZrkFxQ$%(51*S8OTOA;*D_P}n8Y|cr#B7{-^Ua}m
+z;xBU+yxYHr-;eisr}a6VkR?o4UVoi;=?2r&rn9Hg#GdY(c%Avq-H3XgcLL8GtLKEO
+zENpLFpKbEJ-Y9;WV`NFl`nB~k&lxv{v&_wWZ??mJg6lhr*%81Lp1ru}5$_i*@t%~<
+zSGRm}%sMnL&N@&%`)P9igIM<MERhdx>Ex(+D12NL@LPVC@42p>l`Ok7+|8PoJdEC0
+z&U8MxjOY8A=|&mTZl$%aZ{l3KN$1W##b-A@i&?0gY08d&ZE|RP&~CkiiZ?gy_a4f8
+z{8Dn?wr8e&#dGBUSuclW|MtU7{;K|NrEeo`tCQ4E-Kl$Xzfbe_y}SEY%C2#GEgcgl
+zHuc@jsWxSX?z7&1`|PuqVg0Sl(sh}=tD~yDpK-<k3n7_Y#U)~g<2D-4@h^OPDR+0(
+zb-f37)~vHV*mGtJ!xY;+79kd54sf*NKO+Of|NrMEUEB{WTiHN`Dl@|zf!dF}KZA{d
+OA`G6celF{r5}E*H6p!No
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon16.png b/apps/browser/webpack/smartfill-brand/images/icon16.png
+index cce3581528fad677df04205f3d1d2e22ee266ca1..f2958e979d897a352f9d12fe48f9ae8709c62474 100644
+GIT binary patch
+delta 249
+zcmV<V00#fB0+j-gB!9|DL_t(|oTQUG4#F@HM8}SgL6Zt<s#HWuPq+i=H~<AvDEQqX
+zhX7g>3DKm27HBvK0+US&DC}ruUbU7r<Mpmap~6d(p}>0vhyW~fsUbJ7b-ovkSnuF~
+zhKObJvKypT{I-o2fwW!CqY)0t6wg&&*EXb0oJBE0zgwSwYjT!>iO}!y4UUg1xL6Es
+zSQg*SQoSg)Mgs)~Z5^>@khN?<*+nrp2$haC{y<VN;EXOMr3#La*3+lUT@3o?Dv^Hm
+zqYhI_ah_0|KL7v#|NlM4?X3U+00v1!K~w_(z_>pP#BSMi00000NkvXXu0mjfJP2wD
+
+delta 276
+zcmV+v0qg#i0<Qv)B!A>dL_t(|oa|FA55h1Iy_SMlkTWC%g9VS=A0d!Hum~K6VfG{V
+zP)HmGyI%kT5;O@xO_Bw+v9jJivcR&iVR@pxckR3O(mn<;l*YY=ONk6Ape{EoZFvki
+z!BOp3nf+XORDrL+b*ETpgSxm-L9>bRT*cRT5nh|{1LOeZq<_h<XU?N!t5%0?ca$jT
+ztmm*f?ISL<?0u8vIB<7tjAf~evtizFegyeAJ__uvXQ*gHjLqo`7^M+UYy*D8zkv4&
+z;%~boc~P1SQpG|`ePeJPGK1?vi!GorG8GBT1fd%P<gxP$00960;iA8000006Nkl<Z
+a0{~=SSRU=Ghz*DU0000<MNUMnLSTYt9C_jZ
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon16_gray.png b/apps/browser/webpack/smartfill-brand/images/icon16_gray.png
+index 6507ded42d603404d610e0db82a08e214587df5f..ea3969348dcdac5686ec525bd69aae1ca243ed47 100644
+GIT binary patch
+delta 232
+zcmV<E02lwP0)zsPB!9U{L_t(|oSc(A4gw(%g@=_ZSa<@+cC=msdMnOhZSM`J?BNpD
+zRD{IRgCJv8V>V!B`4SQcyf;5#I8>~)$5P6vZfBs87-Ki*+?_4r3k*<A&U}eH1Zp|Z
+z({3^I-i<K^gb*O5gb)IF@0;&<Ppq~6o^hXZey=qX5W!4ZG+_-|k$Q9uu<j3=d(bl6
+zl);+chLSV*Cn6ctFAfy2gaqTH38xAMLG3Qa_*6<g>iJODo~XrfzT!B)00030|G_N}
+iEC2ui21!IgR09CutU#uJv&V`60000<MNUMnLSTaKIAiVr
+
+delta 273
+zcmV+s0q*{U0;~d%B!A&aL_t(|oa~da4uUWchOe~)?#5{1Bj`J@IypGI7+oA-@+q8P
+zFeVZgeFqb#zJspDn7C-zWq=}A3L#2};OaNDcWwV`FTG=sVPQF4M#Baa;0xl;&B-b8
+z2@bZs?)U_@k*ULXa2CSIFs3&uqm~mRy3zo_XV++WgbD<L^nV!U9A*~VttJcy{anHR
+zz~Owkrao%f`yn9&_(34;x~9qb>3Q*uYCX$GfcwLRm9vw!IU56|H1+eK@FV{K(Jx?a
+zM}?HTX)QN}V$@RA7#zyOQ7cox#wZztD^1*u302zp1pom5|An4#pa1{>21!IgR09Ca
+X=}{vs4a}GT015yANkvXXu0mjfP>6hu
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon19.png b/apps/browser/webpack/smartfill-brand/images/icon19.png
+index 4a55e50e1c5ac87d7ee90e30ef1a2cc3ac38437b..47383baa05d289655bd36916b2440206bf4a16ae 100644
+GIT binary patch
+delta 312
+zcmV-80muG=1JeSKB!37=L_t(|oUD|w4#7|qhW~rpnAoibVPmvO#K3@wr|<v<L|DXZ
+z<pG#5*d*S7jmg@bNeK5;D$?k2tNoIuIlb+dbI<8LCWu+xFn7@wglMWL4t*><9^+f~
+zGDKs37q)00Td9RI{%3v5oGXTr%$0;d55Y)ED{?iJXo@gUC4Z98s8K$Vf(CJuTkRHV
+z=oG5&c(7Tbzgc*`FFDz#$cecuC70DV@`*Hj%eJQj{KCkN_T_%|cg>2E(OXD&iaFSB
+z5>CN&eh)S?cN2aIS(%%TM~5BQZBj?K6aB7|%!0>}a(D9wmZW)vFi;+84>mQA5R5f>
+zBuz*fY|7lmYcb1yph?@dzgM0o00030|KWf^ApigX21!IgR09Bre_TMJ@QEJ)0000<
+KMNUMnLSTZHvX4*z
+
+delta 359
+zcmV-t0hs>N0)hjOB!4$aL_t(|oa~glN&`U@hX0uz19n0LZ_!j@p`b+?5wx+=)>=fg
+zwGu%PL=XgPA3y{vL9oyVNU19dB0>}qYy#O_Aml=_+0D%4LMH5zWH)8LYUW%%b`Q*9
+zXy<r4h)Q4>ozO}JT-+pEL!_BI+1VgAJ>$m+x<|K(by_*Uet&Ap>Y_(@gbO!?kV<3i
+zi#*flCt^m7GNUy)KQ@Jx@T_a|-N!T1g}f3oEpwE~VN**<94xP6H?ry~Gjdtnf4-_g
+z?qN>F(Z3iL#zXSFG%<sK#*iuI5i{a4_M1vLwejCP+6%EE>mM%s99|+k62!yT8@6t*
+z+{$2<=`=+j8DPkIhjpy5ZFGy{3-E$?0kpnGbofIT9yv3yM&N@+za}ry_iwVc_(DMD
+z_;s=ekJxAX%05%@v1zLS00960T=h>l00006Nkl<Z0{|c;Xfrw@z~TS^002ovPDHLk
+FV1igapSl15
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon19_gray.png b/apps/browser/webpack/smartfill-brand/images/icon19_gray.png
+index 823d711d4be71b7546f01c8187e9613b8b29b810..8a82a10d42b90c7a29ea663fee06db426e2b5e59 100644
+GIT binary patch
+delta 296
+zcmV+@0oVTb0>T22BYyz*Nkl<Zc$}=1F$#k~5CGTHCarbAv-1aeMbNa#Pf}S0?D7iR
+z=m&zWKd{sf2=*bDU5FA6T~Ez`=z22T?XK$p634M<n&zyOI$`L7Ijv<`56|;bbi6GR
+z)pdQtg#)aolu}-8-}f&V9AO*#uIpaT_h_3Tj{t)l1wjA?xPK0}8buL=VK~Hjo<o*p
+zliv$Y_ABaRZkK}F)flT}RaL=KSeY)Qcy-Q_BpHNsr<jASCei1}q&?W3=|z|mvN9dL
+zRdm>6jul}}*22UuwXi)}LGuXy0C@xrHheB&8zp({q9_zr?Md?pUrM}o3nVmYQyh$U
+unzSDP00960BOzKTC;$Ke21!IgR09C2^j*cmVq7Hv0000<MNUMnLSTZJAc0%}
+
+delta 349
+zcmV-j0iyoG0`~%tBYy!bNkl<Zc%1B%Jxjw-6o%h(d!Y(dkVH`Y0fH0+@mJ^{aB~p1
+zf`gljxVSk8-NePsRj`YHA-ib(SQHmaKPV)(l-%~*kkXW-O`DE=AdsAU&Xdc9`$~*(
+zT`pS%KfjC#w1sjnN~PLxjl!3k+q(l2bOq>rq=p>r>&x@A(|^i97KreS8PPrtStyLr
+z>}YnvdEzr#()s`4Max>l*5*dy@O$+Oo>GyTN6MCb*j<V?@9h>*+}Tc)xvq!m=Xa#W
+z9vRpC^ZN(8zdL5#wvo#TDAhr|(J-}Us}(nfSlR2_hk2Nj<0GuD6wD8vDlZs^z#Lh~
+zrbkZf&>Crxd{+DWHz2X${^1d6V2=o5gdAjo9QK$q;}}5(!g(X(_~00seutcALHwAn
+v(d8^j+XDaq|Nmy!O9KD^00v1!K~w_(V&HI%GMNG`00000NkvXXu0mjfH1w-?
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon19_locked.png b/apps/browser/webpack/smartfill-brand/images/icon19_locked.png
+index 01a3986e4cfa31e1f82eae705a03a986ba77fd6e..b6323f58e911ea28ebea28229b761af6f7760b1b 100644
+GIT binary patch
+delta 614
+zcmV-s0-61)1^)z)B!4tXL_t(|oUD{>NK;W5$N%@9iwjyH(#z<DkQy$698w|FSS*Po
+zD~nR8pf}P$2N4oN6hjNNK15NCK1|4>LHQvo@XJzG=tLoN4!MgmQ;20N3%6uzZk=<&
+zQQ*B^U;c36JokCd?>y&u&N&j89v>#sTYU`#p^91tXjcfS)PL=SIZ}_3CzApP^(}c$
+z9fg>?S`)eBdkHb-?-m3&Fh3c^P)1y$phhf&Xo*B<sF5{02O4CM)V!B%`*F#(FKySg
+zJwt6<i(<T}2KyH@WvgW=s%15utl1{a8s_~dW402ci>FdbPS5EJ|847CID|+vioCV!
+zxb6E8#I2roG=B$r)H7o$a9yJr2Ko3?_$z*W`w8duyI8*|AEvx*a66k&yL}HF1;sPN
+zn9`X|#Bku?F>KtBgNLp=kl%D*G#o~0=}8<lZAOtPR~<Ihgh(WcD-Ad3HT+wVvf~vf
+zJ5hmimF4(8_5=5vjVL!;AVGul`o(B})xpPyii?m;CV#PJ)k?(UasKahXBVog?dmYr
+zQLjtpjgTY)!;0ltO(Ey)XVWn{T?Pmtn4}A^ZHAO#LH_yP%h+Yxp}6Qys|DS|gE1mn
+z%!}wHwLwMWiQlLxIRdx4nI0y<9~eNdKY-r8ehdwdprPJ@`+na8lC&E;#V@)obdFI8
+zHZb}b%U?1xaka7vFFjtgylCaXrCC`V)YRW4*NwRg1s<*OrDg4BUE4|zEvr%Y$Y9Jf
+zBtN=2@$?LPY5xEK0RR8SJb~;0000I_L_t&o0LHz>*4omr-T(jq07*qoM6N<$g68xe
+A&Hw-a
+
+delta 658
+zcmV;D0&V^O1gZs)B!6E?L_t(|oUD{xNK;`L$N%TUS!{=vn%XwoMP-GfLIx6HMoKq%
+zQ6VW7eUk%CtfUVslE|X6AjzVObrFUaNnjY>7?Ng-oQ-sunS~@s*iyl-xt*Q$o>v>r
+zJabC_tM`4L=l$_K|M#4i$823V7!99lDdrRBnZS)Fzh{P+K!2{}*e-_gmy)F!;mhv#
+zGo`-k)|Ua;G^h@X6ai++K$a4xI$E^;o@Zo_c$Rm~OeV$YvDLU%@$j>b_ZXTO4~mJB
+z7{gPuSt%${xFrKe&D#`VuCWn3|I`*7BpiOO;-=ninBom|y?Ny-s5l<O?s0Uxe$v?Y
+z!C!M7BV(RDZhzn-q&_I9r}!3(+Gx~%b|CBNeWfypUN(Wne-yuv;+%~sIF*u)WaDbO
+zw|)D9iq=NdI9nG6OI#j{Gn>*-dHVqxn_9s09Cq&5j;lo$;;$Z;>R%x2F(cd}_Ut`?
+zqz&s(WvxWlhZYRDT*%Hog8l2wXe+#!5f*H8bPPAkD}TtB?w=a>P#$s)=b<S71O|tO
+z@#x`W=#~hU`Nt#xjYdsJla;kQ6Otq$L9c_y<Ds$Ux9@PJq}asMzdwX^Ywnzb_nMV@
+z6dxB01A&}AX$j;bBURuyPVQP_r=JmfsOD@vUDRwPrKhFBJvnLP<PDRW+|Mw`RVp44
+zy*R%w7k|~&HT0cncXq<j?u6rG2YP?>;a+)}dzl~<P?*2j@s$AW1ei#+y4kSKfqtye
+zYEhP7fL9H#QCn9}fiY206eOtCml=ksV*Y6(#7iq*zkF+2jm9K<Bzk>s1VMe5fEwid
+s9{>OV|Nm&xpU?mR00v1!K~w_(O<B_OE6e(d01E&B07*qoM6N<$g27Kf<p2Nx
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon32.png b/apps/browser/webpack/smartfill-brand/images/icon32.png
+index f6fe959e45711dad59201ae0d7b8d18b84e9453c..245689d847bfc1d6c8da38d8da05be138af5c85d 100644
+GIT binary patch
+delta 440
+zcmV;p0Z0De1JVPKB!7oVL_t(|oWz$uPQx%1#y_WK&Ka1PD*@^Rq6dJDk)f5~3JBB+
+zQG~bxLpw0C!2yccA{B`hCeDz#LB`LGQ5!{RpOx6ZC~_PpdY|7POHZP})>Xf!ggVua
+z9eu~Bhg9E*P~v%hKb|Zvh=0SEXKf|rBNX<~Bmy&$Wf${@r+?4I)EaNeH`KS|b)@1q
+zJ0cMg&CJgI87Jc0CPW_dF#@1-qA&A=3j*1eSY&%BIwZhn?2E(_4jgXpV9-4=BQcu3
+zn(=n}0xoO;Lv47_JzjaYJm-ptI3Jf8FAA|<X+*##P-r-?LQu7POK=ZxVF`Hu`Cj{t
+zt%ybhj2z0WR(}EHfvO$S8n+Bv(Lwu$^8<+x`YI-yi*dr~Bt)sOFSt-!6>#g{;^cv{
+z^MG6b7Pbe56+3kiQR_kE5(ah%HaU(t2zlL82ndBBML1FtkRTjMMC}p+LAFh2r1M~=
+zhh6wYw`kejWZ#sbZj;X8Hy2Xs59z@OpdO8SHByD<`7yA4Ax%Va)pvXT2LJ&7|6Qxm
+iAOHXW21!IgR09BukA^1MhrHPU0000<MNUMnLSTaBhr}iT
+
+delta 454
+zcmV;%0XhEC1K<OYB!87jL_t(|oa~pqOT$1I#-H?K5jO=%1)apff)?W7ARVPT32tt|
+zRb8ci42oSv|A0*G?xLb&6_gq&iVlT>;NoP#J?6YinvfvTq=}af`9a9#?%;Xuy}R(f
+zDa1_1b6{7V69^;%3?T#p@IeHq+JSQGG43W^mP>+wecF@|Eq^K@*!!v|7cM>LM|MYE
+zr>`n~a)_QBUD#^6Sm@~WX2a^VBhX#>IXFNgv1mmiWjis$&IPBIVSpVtM8D_1A$2uP
+z1MIYeGnS@t4Z~iwUa&MXekQNvC2SR!5QN&}9gc1;|D5N`z>GMKX>klec>C=5GLS;d
+z_=><)`x#Rsqkpcxg^4_}Y4blu=*2#3J-NnDUmoBGUk2*0E#q<WUOvX~z@X9AbREmp
+z6ZAstTaXw?3?v2;1N~uurOx1trD-N4G;e1aLJ-8tCc<E7!jTncw&i>9%L`TQP?=>7
+z`wXz60i1AZ*@X$YZnjy`K$|7}BQz!7psTO_Fu-6Hi$5@5XwXTMh`u^vrP-QO+%V)d
+wJGSDKH{SpN0RR8g^IZP`000I_L_t&o0G6?Lj)1EGCjbBd07*qoM6N<$f|mx?S^xk5
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon32_gray.png b/apps/browser/webpack/smartfill-brand/images/icon32_gray.png
+index 323d4ecd14d0ca0106a2119efb8b9e7a303b83c1..f4087f751172742ad8712c6f6480727762c22f56 100644
+GIT binary patch
+delta 415
+zcmV;Q0bu^e1Gxi`B!6y6L_t(|oWz&CYJ@-#$HxzBY_CdxAo~<Y$~0PA=_@3p&I5!b
+zuV7`ZO=|m;f_UT|(%D#L#&bc$yK|P+{lT)ct~h^Zb{58k8A*~n;dH_waQL8y4o8Ed
+z%ChWxx?xEpj^m@}dCzDDuq|!h_n&#5|I)&lIR8TP0k-GhIDgKg5aOq<>pz>GjDM~x
+z+-vaB=L;FunDbXK!@CQY180g82@qfoK?3&7{T$x~1%e=eFbs#8D9dt~i=qH7YynXe
+z4bG=b*IW@c=jA2mb0IP+n+RCLErCn0Qn2RZ#v{OmC7^BFyYI+~*hB#L<JtvK1a66-
+zJ#HDY?*Zvxet#fUoGS^q#+vi7gtjW+*1tq40!z-g^)F#ZfUe_fsEE*d5vinsodVTd
+zYZH*BDd>b!(1AHR63~D-8WK=}IVyYX)y}X#E%_eG5PP)`*!L`S)E|;D^oG=<QLlzQ
+z+Yy%s*p@Rof0NCrHQ(L4J^u#)0RR6JuiK6Q000I_L>NI-0{}b8bJ}epsQv%|002ov
+JPDHLkV1jS8#>M~u
+
+delta 429
+zcmV;e0aE_C1IGi9B!7HKL_t(|oa~psO2a@L$G>-UsH2)}f(qj75CtDWpTVs~9E=bj
+zpo0%!!8nMtn=jy?f-m4;#KA#?`ma=+T+}&d?#?s`8cmw?(jgxRB)Nm{H@~|hzb{3>
+zRN@Aj`|V{g7%tpNWPpOcfxxjgYZt$blOMu%dxe4R0L(zH5Pye&G%T}r7HgnsADRqg
+z4?~22ZCU2J9X$8N`Ioz=Pyhj4^(#UBm$K|?2x|!gV#DRW=6_l+q^4g1Z?{7=-<rZe
+z)}uBEzGfxK<oUT-EEx+(!|h!MSJyZH&P!xK*EQ%`x+1-Qd?qqLQ80-r@Z9Y|n;4J0
+zo0*;hrGfv4$A4~QymSAA+zj+yUd0t=qrQf*YE|63u8ZT7a|}Y^OHdjp4U`5-1EXO;
+zw9d+frKbEBczwIqp`_xVb%acCO@zAQUAuLut}i6cwpm}~cQi0W8c;-7t8ak!={z)G
+z$jD$4q@&0w;E9EY23{iM4v%I$kOZkn8j7K?aH^Uw044wc|NrXA#}EJj00v1!K~w_(
+XlHzq3N@-JS00000NkvXXu0mjf<~GN_
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon38.png b/apps/browser/webpack/smartfill-brand/images/icon38.png
+index 2351324e3ea4965d9327c64d9c58b9446d0446a9..19c8222b6cd8633102017d961b6f65462eccd4f3 100644
+GIT binary patch
+delta 546
+zcmV+-0^R+g1iJ)~B!BQpL_t(|oXnWLN&`U@h0jd(1q3@Sw9-Nl3oS$w$OFVeP}52D
+z4Xli;h{0I-2u88-2Nblh3>eWui!>Hm+4vaAj&nCz3Fde2B%AqQ+0D!phkGYyhU1_G
+zv212dN~|hi5enlN1Oh(-c=bHoR`Z3M=II8U-OXhPd7?+>5q~8L?@-=O<@o#=|Aoce
+ztqtL+OAHYuMY@_hy`pblm|rO=ORxdYi&N#K|AX3R3w14mHo6eFhD9iabxHp|SO#fw
+zd`qwl(&P-xr%ceA9Q1+2<dlA<{qLvmPyKws6eD3I$W5;J?*JDm|D7v7;IMcPE^J}@
+zT9BJewVe;<xPRg#m~;}=xTdk1VPFZPYW0d6Vr?U=R>qlC2m?!4nD#{4$}o1owT`~{
+zSSLzMVXTVfLRdhgc0uhS1MNmHYuXW$@wo#qAaSC80iGBcZJOJ@E8wF10xoQWC8$m9
+z_K@j$X}tMcodAhG_?%J2I-LNf;*5lKf_oGN7`3vOgMXaMz$#X|Jo4LVbRQceMy)h4
+z&~6B4FQZ@~l2RAghSnr03W8;jCQ11eEQ2)F(w=PQE%HpP9Xczk<O>TmAJd^3Y@x2j
+z7e;v$g=QEsq#;NZV}FCC@`qfSE$Xc|quV-$D5*uA>FUwhV=yFIt+OE<{sjO4|NqPK
+kim3nq02>BLL_t&o0G5xY_GqKU?EnA(07*qoM6N<$f_#|#%K!iX
+
+delta 520
+zcmV+j0{8v91fc|wB!AXPL_t(|oa~rQO9DY0#-CZWIz<H`L>=tdA%fly74#W`E?pLb
+z@Ea6Lr=q@rbcpR7ME8iG4kg&3Q+Wt1h(M`4Wu>;$%<ihYn%SD}Zm>TPcV1+F%#MF{
+z9sv%;TX)84sM{yJ2S8{WngJ!byxft*b~N+TG*WB87ZF1gM1KUuI9dTgoPbLC4JrEl
+za0P8^;*cz0mkmw95@<}25zK8#*Qh0?N|6(G>4&wX1ewn3<plkxx>A-)as1l7OL&SG
+zd{40jT!C$ne$U)UT0XnF<gL<*DI48p^bYDCV<o}s`FMc?D15f}@KU0zm{O-4LeWJn
+zuuAbHb$=8bn}5aP@B|tm{*XlY=%D^Yt&rER{5r(Z8B7igq7ee!y}uLF5a3W8D`x6Z
+zF75B2ud~b0#~;z&!m^=n{rC{4$%LWrIs1y1iQQ$Ml#iawTefOmBK?T-`&;}4caNFH
+z6*G$~W)@e>EUuVYTrsn#V(i!sr=YngZx=jEV22Sj!ha2Wlki1?XckJYf#QnsfP-ZT
+zup926g)Kt4k4mr^y@TOs<PD1#)`cmR&{$zpnl82s|4N>^u&)%XC#BuH?4ob*w1uZG
+z+#Z&}V<=<N!}&kKT@_A?I_>5Q00960s-Noy00006Nkl<Z0|2udp|U%rnS%fT002ov
+KPDHLkU;%=lw)!am
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon38_gray.png b/apps/browser/webpack/smartfill-brand/images/icon38_gray.png
+index 1c48b65559a43d665899afdc335744de536c74fc..e914e2b6cfdeb92648791179d020eee3b1042847 100644
+GIT binary patch
+delta 502
+zcmV<S0SW$_1ds%fB!9(8L_t(|oXnU(YJ*S^K*wK?kQ|_^2mv7%XlQp`B_{}E*-LcM
+zE_#HnlN0C(3SD(qEeN{mqO0N^q%+npR;<w(HUGhfZxnpaeCM07p@H3QcdeAV!s!yn
+z9L6EV5oKBSdORLq>L)GuE99ck9ZnsXmKX(}QSd|maG@vr{eS+(vaBbZ&R}|Gc<<ZQ
+zYV{Qa!DlH(kt(Fl&DwR{_b?2<6&)4nGXm{m6$||y3<B5NgI&CRMnO(C{FVgMSd!RS
+zbxOkAh5>LKCm%!{$N7*V5+j+-W>ZQLbWHfZ51!`%7q-}TyDcS}(C4^v3YfG>Rj;W=
+zvkxpWidI*;JbyqFtW+)*3m6-gSfBJvn#w-qfLl5Ssbg&<Ndg>L5u+N_l}XD5rKgKr
+zp9iSJPNj|ny`l95uEix=6T84_x&PLXbiWiY{-y%TEfG~j5o_B4q;ev$Hn>}nMwCkF
+z&D$6)V%3jF4x;a|F%hLwQb123F0f-kYb*uxNJ%UL^KXb0^{2ov$VnAVGx;CE;fTp8
+zuVd6S14Ga*d4G)hQPecU=^D-m_UIlDhr=5{rK3olJZhTZ$xE2Nt4OWRQYx2hy2^y+
+s@DBh00RR6Q2(sn?000I_L_t&o0FZ&Dhf8^-QUCw|07*qoM6N<$f@EOfuK)l5
+
+delta 513
+zcmV+c0{;Dw1e*kqB!AFJL_t(|oa~rQO9DX{$NxJ<g_2Q+tYbm1(lM}G1VP`SQ-n}L
+z9;%Pg3s_iS(W%c6bf`<@f}Oi|h%yOZDhM}lZJ%Y=c1^Qgb$5gPf$TUlGCyX<hkYIf
+zhtkn#LOg!fCy2tZD3&_W0vPjrcCoJeNMtGh+dQt`z)mc&#(x-=%Vo@<4R9P%qKMPY
+zX!x+^cy-5i>}ZN{o)f7Vf;I4BxwNtsUA;p+F-7W9Y6f5}8A)zlE622>%1&7=MFf<!
+zzg^S@-6>die6<KE4l)%ny6CVOt%H2WC?ph1A2~RHZjZO0LW#U%6sO=2R2MnGQt;%s
+z#y^@4PGEd=1b=3D&b;6{nQAys4de|Yzn0+S7={K1U<SXx=TBlP3=YMyVup_L{Nf5e
+zpI6t{D;?3|!kn(}hQGzbV_Mf&EDC6w*z4Q7{Lvx^KNrmA3wTOr&<yS!Gm0x_6j#hB
+zu9#6=F{8L*Mv=uRZHGfpUF5e5swGIt2+WYp6|i@3jCxi<F7%XljIt7{CBSCLK`pja
+z?idv~U^7|=U2e3ypGd;KY@FX%56`M!bpJ}Kx=4@aUOml`QP!@Y6QgPiRb8Ye59{Eo
+zD?P;jDcn`#xKgLxd;tIe|Np#@%XR<&00v1!K~w_(;*_i|?rIF%00000NkvXXu0mjf
+DX;keN
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon38_locked.png b/apps/browser/webpack/smartfill-brand/images/icon38_locked.png
+index 867e2356e4a34b48699cff08d6e0750fe306fcf2..12167e4346a8e10c0130eb9ed2102811ca4d1a03 100644
+GIT binary patch
+delta 1170
+zcmV;D1a13~38o2<B!62;L_t(|oXnViOjTtV$G_*jSEv~m-O8FIT$(?a)))vzMVFvx
+z%?-1u1zRq=PMGWG(iL&LPJT>lu2z5eM>Xu$azVvRS!PyNfOZi9k==pL2Jyqnnm@Rj
+zZs|Rp=eZs{z!ACU9PEC!v-i30d0+V6=Y8JidGBk74z@D)lYc^BnGD<y8FykbkT4(t
+z2SOp#UEZ|q^Rcfr*k51uASCg&(wm7JiHsJ=p>>xw`x-G?n9aMoPzuSP;eSLHQqkqg
+z>Kd|H7<)>H21Em)kc&Jg_ya9pv~Wd>M1d|zs6`YZ%XmuA?n9J8n(Uksq72expR_z>
+z21Sz{7Lb!XPk(t**#5bvTX~McET)8!AaCB|+^Tr7gxkt}yHK%jCyZiP*ak(AH*d)`
+z->dJ8iW4x%c%rmpwBC#aL&C^g6U7_BSS^N@(q+&KkzhzzB+GL{mok!cU^I0Y4*rSK
+zpb>VHeF~=7Y!jMiXeld|6p*v})d`I~d+{Iab+5<51b-(Su{U$y$@4?-_x*}pUG4a|
+zZNKh3$?kE>Fu?Wl7;#BCH`~Sdi_&}gZ<Ox&0(F5yutb<D&c)?uWPqPMAH<BQacsAD
+zbYe&SH~6Kw1p|Y>L)ZlFawfr*eIHgVEr2s=7LTj?u^#0=d^P+xY{Hec5eA{ac22)_
+zjIgOOv47lp$~W`V(HX$0(`S&8o{HON+=jNpN6^yR4&U}#*p!&NHzS?DU`RQLHTE9k
+zxu!fu{99G6+rM(n^Jv`fXZz*niuut}xT*yHgRN{oUAP=o8%o(;?0W~_9S@k>mDj2O
+z<Rw*<Dva>AwBp^ZAFy5Hdw=--r!`+<+b7}QL4OtbPjG8_x}ccaURyUt6bUMPri5D(
+zNMtQqI6Q94ds`7acMcf|$w;5+G$%}NS5lyBQUAH>DXpEAc~#hj3l~wpdoSCM%${$(
+z$7uH%rTI`Bw`nsI&7H^epp>98E#85&)O*-I-q}3dFG=Cw*^lMtj_~B*i9fi#<Cb`H
+zCx2Kvr4m9&@H|uywry7zA!Xhi#Ky$1ZPzJ9DRbw*5f_J{V30rCuFR#hVOZGclj)kw
+z93`nbIC*vkx?qIlq(pA}&Yn_YOu2P|1yJoHD5D$YfviQ`9{IEXjG(I^SO67dg362$
+z5@#i#VDY1DALu>i7j!=b3!qa16=bS?>wjKc%Y8#b!RyXb<Lk9oUf_23(GJD?Js*W{
+zd&=Agt+*3gwjcvFMPX5IRJ_R<eSXSZI2>`h<NF5&c_)^we+k9zmE4#6;ah>9ic9b2
+zts=5hyOllsEKJh%*9izoa6!(?$>tsR^|#-n_qTpdBcq?`)8etI+=HSO;WAXR!+(dJ
+zf!5`rro(-ca&hO$Ex^Wym$FS|hB7)OPx20>1loNR=xR)<qN>}QMqb>hSb5c%KYIZe
+zWU77RK{2(ZVNal`r+cmLRi_p!FNdihQ|+TNLm8ctC*>(h3AFnt(Dg2d{{sL3|NnF<
+km5~4d00v1!K~w_(H1noOiS#Q<01E&B07*qoM6N<$f(@fhWB>pF
+
+delta 1148
+zcmV-?1cUpg36TkqB!5OpL_t(|oa~r;OcYlX#=n`_1#H8LeQ9bDu(d*KwSod|Efy_(
+zXdv3u6q_1Lmx`pdZQ3T9LKG5e)3i;h2{9N&G#c?0ANYR6s6m&9s38PRG^jjO@R5Lu
+zkzK}n?r@h`MHgmwasTj_T;|N3JIt4J&pqevmEotD+>XexzJFl8XODm)nc)o_YDY(q
+zsSY_SZ$4?5^tcD+?6gc3QW{i@hcA#&AwgZ$k+*7D&yOD>VE*j4J5BNm_9!0xf@+iP
+zo$2@gUR{I73DZO=hnP7S{mV7k?wG6>C+nYTp6Yi|#Ne)PJ5hu|F~uC1fv1M_nlka-
+z=FX$1E9uVZF@GNDPZ_-iEyh?%Fm<Rm;0M^v(u<TzxW{;&@)Lv>Ey4COd0NLM;H%NG
+zFhWH`9kTXsaX+w2i~G#4BQ54b#Dxxr5h4b?+&f`i$naDAR#=~=@|%qXc-0c((nnKN
+z^kuqB-@=1iais37OW%#Vci=N&7jIqXP0y|NyN`@J+kf1I<Co6E6Q0Ew5o9vMtSG%2
+z+o!4QE5U(5_>QHRsgYw4Gc+8QzyZ9!`A#crmoH#P?J2CTDn-8vn-lvH{{1`^1I&-+
+z?pL0-ASG%nZ`p|{Sg>~!w$xPmUfA5YL`-`9EpDGWQ;n@9dvKzx0u7B<AS*J4hle3y
+z!h4u8Eq@u|VWB9VnTfo^CCELr&9}mYsI1(-ux>+lwvUgE;a6MvNmSR=BEO&zzx|Yn
+zd2_AIbIGuGI<WZgcHapjW_|x7j+NTD{mTz?c+->mZ3Y+k-_m8c*4%=;g$s}~c^cjb
+zc`0tzpG7vGtV;5f5G8~Wwu+PZKYuy5i;D`J&wtkzZ${yo_1sPw70oxRUKd6&rJp__
+ziUg(3&fr%PNQkK={#lZbw%fPa%6%?MRn-`;3!^~SBR(!XrMKh9cMEH8zlW0D`^9aN
+z*M-sQGfG)yl`x~d9{iLN1R(=07(3=2ZlA9%bM{M;wxj<nDbdA~jZIgDIYjdq``HdJ
+zL4SEl5IJ%L0s{iLZDOTJG)30NM7}u!mf&FLc%}PY2e<fHf<bE8PQsjR<z<GT<Y|<M
+zuwlZi*Cf&b2RloE2T<)JD5D$YgLvofiE^j!=zs$rKn0ngGGl~cp+k{8<r8sxz$r{S
+zby00F2<;MR6G^p?$_&xk+UEAX);4X-{C{8PiLRY&ah!8mm2~Rj$)O7E5~v_k?V~b7
+z8GXtZU&CSv?s0s5LnFWb@%zu1`sv4_dlCI{*|j-J&$O7{AH7GFrD!@!Kp&}XX@V@t
+zNQfATNfRgV6}M~OL0r64&(p}mZBWQSEY8is%o)?gzes1^+D(Q}4(_tpPJs$CL3L$@
+zGCCzs%2SjQX!TK`>tafXS}ATMw_h=M)LA&)8kaI^T!tkuD9X*yovbZlqN?<r?uB^>
+z6=ZfvVvU6dhOp*ft)8`V)(%jh_w?Qa00030{~dY=zW@LL21!IgR09AmE_k7WYq$vj
+O0000<MNUMnLSTYd9W;jk
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon48.png b/apps/browser/webpack/smartfill-brand/images/icon48.png
+index e5448051e44bb179e32b2635708c870590c9c6a4..1e8cd4a52a651909660598d7c4a2544c6a8d477b 100644
+GIT binary patch
+delta 717
+zcmV;;0y6#e1my*gB!8MoL_t(|oYa~<XcR#d$KQNxWnm{MNYEyBF-01|4Fn-zVXzXS
+z0Y5;nu@V#x!{L!au@DOjQ540(QVju{kSJCnsFf)+NUB_ybm1mDnYYPqF5!~w?f&m>
+z=XdPg-pt<Z|INIadAn~l?M1aJRb%P06!v^%#gHJ|=Snqo2Y+Kp{CDU6?#?~49vpw?
+z^hB)=6s-z_%GC+?2ajF#5h?|??i%n;W9s$W-8DN6xO?+(5H!ZE70;-I2up7o>-si5
+ze7=&FrL|7H*5<w28>Mpd*%*B(F+wJ#-11a@@yuwT%+utH;<rtomoLZ{1P!Qg;9vCh
+z=kM5sbmiJ|d4C3MR&3n_eMgn5+?a4yTp{leheWjcSMoehp2FHCFH+<wtX*%duwKI2
+zIW*{2c+d$nT>S8fez%>XF#hb1%jOps=!@GP%zhv=LRYR^0x>x<M)yZ9?0ZaY_9N5~
+zCBwlg0mver;a(B$#l3<+5`e7Y6ZqJ~y@~=cpdInszkeAc1ceRA+mgdggS-fZXCa<(
+zdI`jZ@`5nFumSUnf2f!AbQMMz59on~+;ci&Er5)HT8@>KS7Zbb1GpvI5rhmUV4(yX
+z!6Cvyb2~Z~f=;6>?A*&od)A}HGaU%0ySuQ#4G8yfp%4_nHPev`nml!RfsTR63=t;U
+zh_1&%sDCgz0qR0ougH+VdY~O)NF#s-WS>5fZUl3oJeQRSptn_e0lSbPe=(A?f#fN1
+zCX-W{<SDG3Z?Dggr?7SzCy`ychP=bpS-YaSIjh3coFltP9^rBWx1!pUUvZX_vwiC9
+z;7QK@ksnN(saN-SCtZo-47f`oQ~BXUcbb$`X-4t4A8XN>p-)Og$4cB2(@y+&>qiZm
+z@b_VlW;}V^W&;2K|No;hkoN!p00v1!K~w_($s6=1c#apL00000NkvXXu0mjfk+)ij
+
+delta 604
+zcmV-i0;B!q1@#1wB!4PNL_t(|oa~ytFEl|M$G>au$|v#U>7L{%9wOr9B!ohNLxf6!
+zMnMFLMkgwQ!d3nN6%j9?Qz#WS6rv(Tq2P29i9$5u_IAwdVPA1~+0D$vev--V&des?
+z@6682?r%#VIVF&sSYDN8N0K0FJ3wk^`h!qW9%#CRl0DED*MGEcYkyU!&WsHyAk*|T
+z0X|$1C`;MY%Eo6E{0%H5WARMcIspbD09535CVn%F1x@!Ub3w(&GXM8!Q4&HyG(Dc~
+za+~lBV%GBFiDxLuoHi$_<AOf(^e_i;NhqxiH{|H_{5`|b18)OXXxth<446|TzuBe`
+z5^q{ftR67ud4EZ;X|*k6Y>|=$ORH@RguTKBiKR8Kt%M%~wT<W~uSO6YrmwJbep0|4
+zR=XE%V7#dfodFr>t*S53fQ9tC(VwxM_Ja@zLD2>#_cqY{uiUpR)jfc}ze*i>FIgQE
+zyKBDn@17n}EJYi*ez-T2A5$$o9s{~zVDs!4K@$yP-hV^}coP}mO=N&KkpbRB26z)0
+z;LXo{Bjbzlab`2XA|t`@tY;7|mR7rgOZukUj{s<1UPQPstvReQKx0yn1)Ek!geEpK
+z%D%gc{)PHNPp#IyUpQtV7EpuWxHUQ=G%WI=w$@id&|YA{KHB>8_B_uzU`7LJKn=n{
+zw4634s#T|+c54`&rCX};y8?prgxT`(bYFg9RvYpLx?OmGH3(}5!dBP-e>IQ+={Iw)
+q00030|Lho<fdBvi21!IgR09A{>Z94KMe`{D0000<MNUMnLSTZPNfKuO
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon48_gray.png b/apps/browser/webpack/smartfill-brand/images/icon48_gray.png
+index b1b1487d0e00815bb9e8341633fbdc1ffc783ae1..f28ff0fcf9a5a90e21e23fcef4dabb4349ba63ba 100644
+GIT binary patch
+delta 679
+zcmV;Y0$Ba-1iuB4B!6^CL_t(|oYb1XiyA=`$KUQ+1k$7k2x(M8a2v5YQYBUHT7}f2
+zmTB@YL`Y?6nm|Y+rajR12*fHO*J*LA#i7+5R@z*3sQ12mj@%u3x9&dInGX#6V|L;D
+zoq4k}%bNskpjNBd!{P9QWm#|e(&dum;!r%yxQw}Yi^bx9CV!Lp&3fkR9<<ioESJki
+zEc_Fnz92oAvXSr2X7l7>#XSS1Qt7#E+n-td5orjUIGNAq-&(EKmAbbI35a(b=L?H}
+zPnyEoUULJ#$>nl?`~Chk?%ApmEzgGo(w~E+Rv*6ymN8!;LqJdD^ZCnOuXk?YYcm>+
+zj!B;Z8<c4}oqzu5q*AFvc63PQ@oX}gTqKs?c_V@L1l>+jrsBdtlFTIu192@6c7c;1
+zVO-bsOE#PJkHGUh8Vm;1ZnsGqt5T`_At8#zA{7dSN1y3*I-*9zdLW2+pq`O3VUqws
+z#Vhcv3a_Y$7}!R9ly}w<*+AHqRD(S#k;i~kD1=2Mgnz;!VLq|}eB<|t_(Zl166QsE
+zAgmBA3;@ioalEq*5d&z+Z3Ia!C&b2p5)}7ZNc1xbVfA`_W4*L^u#@F<oQNC1e?XYJ
+zu*BK}yXYO!F@R<DQ%IYLeJv!lj8=$-P!Mt2_P{p6Bu(tafMghng^+Y?2Sv<4wOXZp
+zfDoFIxqr-HU`*yRhJpS56Gp?ck%uKifp!~7WImsgc}$_*>2|vdPMA$N+wqPJf?NM*
+zqtQ6?a|6isv58m6{*eJ7;muk5A2?sl#K?fNfm6~S4_ej5Dm#PBH)p{Av5A+u_QZ0l
+z!PmQ64NThX@r%Re_+f>$=?zo1+uQ&E0RR73jv!9}00006Nkl<Z0|4bT<`eikf}8*V
+N002ovPDHLkV1f;WP$K{U
+
+delta 597
+zcmV-b0;>JL1?~ipB!44GL_t(|oa~xAODjPbhTn;D3ePz<fy0q_K~WJT7AlHj5exr-
+zRtnn1$`mU0=|wGKWjaL#J8MA~!9SpgDB5|c0$xxXH{(uRli7>9E*oYB_kobj%oljy
+z%;lTSw-G2#1d3DXC1^gAO;k`i2oh-rXcT3I<UsSsIw5;=seh#QW%OsAOUo<cl#)5)
+zG7d2u5klvurzY1v3UD=$PNysXMq{f+=O`qA0-F!Hs|iEbi@ncbfQhe;#&(R$1mr@y
+z&s`1KO*j@Y`{f~@ct*n1X2D{B&3Rd-jT=lG)5y13444a6YU~<|2G~{!al6fTh?`mq
+z6b%&ic}3v0mVc&DAxS9$r<KdZ<<77{Qqt<_DB(tHb0g|%V+exF>l>V&U3iY?lb3G;
+z@%A><*9BvsxvAk>26&V|jsA?|v>Oz1;M>5ic7U4y|6Kb9`g`!_ca^10*Ynuf-FJ<D
+ze0qjod>gpEyDz-l=<e)r7@#zdlhbnqO}L0f6B-arXn#O7p#jl^21FAY5KU-6G(Y!_
+zOeFl>AU6U=Wh5YUT}OE-X)TR_QPu$=BM5+vt!<PQrq!f40<0zlMc}nsDm06k>>=d;
+zhx%wHmF#%`VA+LOK@E~)*XXE`Eo8DAvQ}wWv2Qk&9OK&@d4N>|jW-SQp_$q&R5+qE
+zE#KGMwNC!4s=9?pvL4Jb>#(OXE03~;Zaelz4Lp6x2X7fRz();KK>5SmD*ylh|Nn*}
+j^cMgC00v1!K~w_(j)|={ffL<S00000NkvXXu0mjfWqc5i
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon96.png b/apps/browser/webpack/smartfill-brand/images/icon96.png
+index 06c0a8803a428c6b53da49ac25122bb44f02ec8d..800a3adba9e074f3bb8958ca8d5a77dd07d47b9e 100644
+GIT binary patch
+delta 1397
+zcmV-*1&aEw35N@iBYy=vNkl<Zc%1B=&2AJ&5XY-}29!%K9FcNJa)>#^Nq|G7Bqrhk
+z0*WF>k&tY|A#Z?e99vP0!Qu^)gKeZJNKq7t9C8Xs*r!M!NDyBKJ|u1&cmSB0rmF2(
+zuf5~-?Cwl=?QZ=nYj$^L*HYC~b$3;-|1tE)zUhf05Jg`A;(rmFWrqOa9RNH)r(zf^
+z5&-)WEIdbJ9)PvCAWhd_FI~O`J%G>!`)4LcGGitzz&L%tdoaY14W5t<em7Zm`PIeM
+zhtMG%Ibi?X<cHQqXRWoTKxqLHe??3$y;@kkTlzg^FN|kTU!=n{C}mhm7MEwrT)3wL
+zILBLKe&!qxN`HB1jKD1Wey=g2tplPTroKUoS77i4R9_?(?RV+<l|Od7AlmiB?3oGj
+z&TsV4fYL1n0mpId@H4x9`@f<K3LW6?{0-wP6+pH;iN`*^XV>oBFF3cIedneQTf~1s
+z(@xbSn5LiZ91~j73(aeP0X2Rd#BMUPgKa6uO*Ik6L4T<S#Diw+lee<<+t(T|<qvp~
+zm1X9CP-@4RY&2i2HBu0-a6$1xv#nhOY}R%jfZ`3R9UbD@k&6H>tbyW{+~&>!T-5}{
+zE4j_l)q0}nCMe#ab-~ftHB*!@knN3DIRiqrH?EDS1c7ZIZ}f1LAdv0j%?7#>1U$e+
+zH!Zw{BY)OrOJMry?mzbK2lP7vV|2`)GdG?-a>q3~-gx@3@w^{EDnVNi4jX#z_=$$W
+z%dl|$FZk*DRgjKo2Xtfjok(|t*c3ERhMznB74%B}8B(1PQHSP75JpwT&*2C{`jI#`
+zh;u;I#?O)J1X0t_x{RO0pWVxNQU{_OP^a;?{(r^^kc1cq%zH8nN5H%wCy1E^`MCRY
+z#ssAy5fR`!FK?`<WjH~I14h6%A^v6&B2rL@lprMyX*D!3A|fC}KGrcnafon0i1L7x
+zl7vP;V1~9IyrvPb#X^8uJ-03;AZ85kos)G8*n!U|;5MZc#5llb6i8}Mikb!ahyqD>
+zKYt_20UQB!8c5;}32{APb^`Zqt1cBt-JT+HS47oLki0iY>_RLzSTCKjjg)p(^j5{b
+z*qZpynX?^7L%(cI?2B4ZH)R7!ecyKUMJ>o@!`?RoTMd=ecyEXJ2#~agrw+tNKrgvm
+z+Ag>v#796cX`~-gkmv}gBK=5r!oasArGKX((J82k>8D0OmsDvu$xaaLfa>;cO4$cm
+zgxC~RWhp^&Sz>5Xkkm9JG6DvD_1nzQ?2MB-9Tgb?b$v}$BH|*T&h#VE2}89xS7I6x
+zmx2bl`BFq*^n?c){eD1T*Z~PBp-7CA=Tib<UmDg%1SJe)dxNSQ5Dd1xajKw77=Ot2
+zh9y}+2?N>QNti^lrymcyEUj-?1~*+?e&4MFSPvHzujDp&4q!22P`r}c+&O^Nd{~Sa
+z6fdx?bM<Yr^<sJn6fZQ}x*=tluHAXTGJEv!b5QDJ>Gk=QhEi>dnreJ*>Za<-)CA4@
+zlM5?Hn_p_FhO!JdXo0Q{l1<xgqkqK#tar;Y+@Mqn+q6huzEDw{m7iILo0XtJ=@|<+
+zNsF#4Mdx<alxGcemf=RguR$9(-ICCq|LtzZXQFoR=17P>8~xi2%7_O+DGv>}l=Dv}
+z7gn#ey9}WuPHh`t8k90DC5y{5WiE`MBrL-nfBDg$l#Sk|r=y^>z$;v1vTjq&^ZY&E
+z16{Bw06oEytixVK<*FtZ*0{ElmlryrD+e^ga=1>BmBtCDOX;K$ojTv3{X@XS_0Oq|
+z=(>p9$fA0F(bTdN-T(jq|NnsK8EOCk00v1!K~w_(C$-74cSU}+00000NkvXXu0mjf
+DI1Y$&
+
+literal 1199
+zcmeAS@N?(olHy`uVBq!ia0vp^2_VeD1|%QND7Ro>U`g?GaSW-L^X9H^hD@pq+lO>D
+z=|2vEJRwJ<qN@b><Cci%Yq9FvX0Uvm)U7JE_V^>$;ExJvUzIGcdGT6mP6`hBqNGtJ
+z=;|Hqbvt;!y~j)T+)U}R=X3Y{pXqe@%$al6yWgL)pKY_>+xw>P?f;YK_J6<oMz|@Y
+zRUwqeL6SM(nuEN}kBi@U*BaE=@ibqQs9@@lKj6S6#{6KD;m4JU$$fYJ6@6o|;eK%P
+z!aLdI2FcC(E3dz~F#n)dN_*)ohW$60kJp%N&6kt=B6eWicKIxuKQHu-{5Vjz^lOB7
+z(wvR|pWD8jeSNv1Z8>-BE31Zw{`YF_`_86+^Img!mY6<^<B!bOpYy*j;=al}qvrie
+zwp;PH)Aup%Qa{$8Yf`r8=h>fH{;NeC9zTAougtMOy0~3ByeOjUY{l>HoBLztKax3c
+z;mMJ03J3f@MF*${$~^wM!t(R#)6H|4JobG){Gq(y$2uj6%~zjJ4UluFI`hB1eQwvA
+zhbQI<Z<{h#*z0}E`*{VHe^$LYGwJ5k7Zn~8y?uY5ZeQ?@r6TXeRdM|p_TT@9|Cyk4
+z()XIOdd1xPt1A}Pem>T=X!h1a&H+X3ryo`etnp5tx&DWY!fEa&?(LD!*e2+#`FP}Y
+z|J>AF5i>(Sa2X^kobRb-*tCS_)2fVRGZ|8hQ@5^ro;_*ishsKmE7cfoo@Dy!dN0SA
+z@r0Su3jI%Mvu_IfeJ@xk4`glDv|l0pqFKQ@dY`UqWc<Bpmri;wo^9~^8s8d|^mVZZ
+zx7}QSp-bt?%5MyA^3n&FO`N*@h|2$E;`3tq|DT`hGPi;w=orHkLxxmv`~sO*>m+ZP
+zeT_?BU$T|`!|9F9GpxU?*YOFhy7z3k`J<c1-RH<ve|c0X6KB!A>fEi_8+TomJMgxQ
+z`?39$eX(lE?`OYHNcybp*Z=q5f%_T%J{q$zo@YEI(O|^3podW-nSr{@A|?(o$J$AA
+zbJZAL`Y=KQ$Rm+AY{BGk{lp7T&zgN+-1X^T(c6U|EKclpOEJ^SPdfEC^5Vn0!pnc0
+z?5y)-4$jU}`#iI7XSic#sPNAalgmw~FI@0;7t@_;fBBGnc)pL{oM+G7tCe!4&d$8!
+zT=lUxqQO?d-s;RIgN7xFd>@%sxCcE@*nB4Z57&%&yH$A$7tB*JeiKj{@oS>$w-|%-
+z*Y@an?v5*7mMrS<GASnLygF}Th;LN#*3EAcpRQhbsabS(p@*g9&aO!_Ex&kK>AHI>
+z&$;rsQE`XIDxTQiDs#UxPs(#i-u9{BO5>Sh=T2;O4+^<8VPeSSD!b|;#=H7!H{T6f
+z>KVG>!p`(kaV!0!Ud4O8K0m!QPsdm-*Ku{JX7scvmqX7M*v-22JoVtEXa?_-%lbsF
+zd8B(q-8NjYR_5TM9OYAf*ESfsPs?9c@l)Di)sJl=kW^5{&cN{h|4!Z_Jz%lJ1}blu
+Z8TNMhX2oXQDg=r!c)I$ztaD0e0sy?#G`Ii&
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon96_gray.png b/apps/browser/webpack/smartfill-brand/images/icon96_gray.png
+index d381b8c1a0b0c6958ff18303680e0bf95e32ab71..b8577e67f6f11148d7996c5d3c3350c1e9a4009d 100644
+GIT binary patch
+delta 1318
+zcmV+>1=;$N3AqZ8B!BKnL_t(|oa~)FOB_)YhR@C}=~9IR(j<^VZ6ewy#1s-pqh%2M
+zSRwcWQrK9f3W7gCgmqPrlv)M}wyFF`r9vd8Nf1H`>(!ihoV$!VtFt>Z_nz4~4-C!@
+zqpR;b=gi!5uX`$#kco+jo^rX|e{pfq!`stRsq}~s-{-AN-G4=cw=@15Px)^=;q9o=
+zXnbE?T|J@%l&Ay7$H$+r=x_L!dCkAbV=6GL!Ee@Jo6Y#Lwzl?*+N3Q5rl+T$ou8k-
+z<K1CWqS*30?{lqIJC6Geu??7-ntIP)#z=|7dc9s>igV(f1|Y|Ch<)I#hm_cGYC7U=
+z;jVkctvAYQwSW4Gg`el`At`Oanmyp{?cm_x$==@HNvrc(8o=V?COgNw9x0sy?S|Nd
+zKWxH}s1qU$;HMm1`E#VC#S1p!XH+EIFd%rYpC`TY)8=J=fB(1r{r$h;gEvIR4VSua
+z5G8?fpzYOz;TL$+<dcR-$pqY(2L=Z2aVpv|$C?p<L4OwMbG{A60<C?T1_UEq#R6fi
+zeFIS2AuTW1WH`|L(f}0JNU@61+&2JKO;W64G%w+~pDTEaq*#aV1v4HdQ%G?Fw69<$
+zixek7dk@oyq&NZESAscQ#R1U1LYEWhiW~0304=<^qpT%o$5bds^!4@mTW@b~^EEg)
+zIPkw79)BMC`{s2XC~*mTn}h?QM@B}Pg2!QVbCWhUHb^?64d_Jp>qs|3Yzi739reXe
+ziuoB*O%Q27TH+fdn;_1Bw8b|_H9^#4XjbAIlHO0UK$HPlif{8h+Chu~xcY5?2(a~D
+zaS(G4uz6*gft&<HM1bwQY(~@)D5L?d-ZKgjDSyaCN|2I<v>NId5fM=26r>U07!d}z
+zsNYMOGtdZdOs;0c(gd?-5)csqm^87Crl1fm=5f`4YuJne7ZKMAF$UO-0!foHqMm|m
+zT$z%tejv&KL_n4TNn9Zz?lIH|l=l39)a5B6#{p@ZAbD+&*nwCYCYY2ad8uM9mL|^5
+z&VRODz0Awf#9Y*ZIw>1Sn)khpT-1W3EhR~luC0bjns~nr@ev?t4Nn$`kANh(JP)Z$
+zd;}y(BY8+cq9Y)U^dsGbuAh>Wo`yuHpftqO2<VVBg_CT88sHeQDJacSg5<J9VIn|k
+z6o~yV$)Zr0m2pxZM@2?J7Gg<FLE<7H%YXDE(S$-R&Xt&k#HFBao_vWyoB`Epm5PM^
+ze}H3PK!X%lG+@9PDXuuf2e+P*;sj{#p)n;XPJs3>AW=6^rE{RYhnB3QI04#w=yiye
+ztfW{4nnQbk9Dshfq*%ph?i+w+#H3ioXzm*jbb{U@#THwp`*yPwflkn*SRt%+^M9l3
+zcXxOHq0JueJ|`th)|Z!;znT{}I%-c&PA+Qq>})`n?Uj|4neZ_$;-m%A0$mm~0&TBw
+zqk9JW-J%UQ?+%fY8k|)=^3}g{{di>i5_En>8*bixK}up+{7>P$AEssh81z6#8*bix
+zNjh=UDGgltt;7enHt<0tpba<g_J5)oF)6XZ4VSmMsI(KNL@`0PZPJF%aapg|>q~J?
+zjBNlwC+MIVvGyL0W($L?TCH{*_Z!+Wz<_4N=!c7ztel!2Q-MKM6NNR@c1(Gp9Xc`~
+z4BFwMD<~RMqBmmD8WG+3x~)MR#ztqDM#M}OCR0$)M@g9y@E-sG|Nrv|4IhO7000I_
+cL_t&o0OU8)Ly~~`qW}N^07*qoM6N<$g7Rc>5dZ)H
+
+literal 1170
+zcmeAS@N?(olHy`uVBq!ia0vp^2_VeD1|%QND7Ro>U~%_!aSW-L^X9H^hDf>$+lS|K
+z^E6wJiLKn|6tzdx`~1C@Wg!{-Yro&|lD5ClvHPBFMR|D7BX^Pfdp0hDwjFXdE7|+I
+zeh8W<u=PH2bD4AI^`GOe$<LDS-<&(Q-mJ22Imhlr|J99mf8MwIbA>{voQEiLz%hm?
+zp%<8Y7caklnBPp|{J#|4F!pP8t#(f&KVOqLbL)VO)6w0rcR#)t;Ytgb@atix?uHvo
+z$^RO*+9z2WJuCcCzgxyHchk1)5+T+XS`Afu|CwqrU;U7OQ}ACQhxX}`AKc|4b(;fM
+zU%j`$S(d%v!-<o*jtSq}?fH^YXMeQWoPYk@|Nh0yJDD>~`qp!6J)6<^ll{xYR@>)4
+z%c{5Tdh0pw`BSb1bs0&)KYENKDwj)#7ez^}d@Hy2*)Nvo3{sDm|J%fIuHC+l@sv^i
+zgTJw|zuzx9-8`2m<L|S0*7o;Vb~Zw7v3)Ju7*AN<58EUCAX9yP=3{p0+k4fv>=l|O
+z9#imRu0+;Zz2G#4PhpeamszQAo-CPWujX1Z@$1tAB0uc*M;ljMkC|V#aatYA2~oZF
+z_?Cm$bcC0(e@Lus?3!SB`Uu0KR?~eS#4=ZyUY_wp*&)nyWrU`&FQ3D-DIi8Kt3d8D
+zo$Fs~d>{HOzNsf<&va<6PC&lO88fkl9Ob4erOa&`Z4+-EX8r1NDJR+8VSnC&@6AhY
+zeoEFnRrP7(6rI;~5=Z9Gu0I@PZ2ny;U0q*^gK5gjFAQP4HO=q$#kMYW`{$dzFTQuV
+z@%aF?c}-Ic8B%#1B*761WG>y$%ge<5YsnV|IX~M&cdPlI2s7`Tx4rD`tQS&;j=t%h
+zUh(e_>!++X@#Iu(TZZ~NIdQ#M$GF+`_gmuYf8Kn#vHab=<6mcQzrg=PYC#X9Ml!=G
+zi3TG!>N0i28m^QzfWqOUw3*}?NQf{jIy6i5MQAbKUp=6>{>#ukw?CZTo7&C&^HS{o
+znvZ%@&y-EPAt(@P>KQE{sy!z&h&Sw1Z}i*LfQ><Evx**viCmiK%Dv=_$=`2Z9}5>r
+zJ^H)2+b~vI+INp+-mlgfQ>FwO8l}yYYq+1|aEg6JwDH<VH7{NVDfuOed{;zgCWc*2
+zyd6DFM#A3kq}<GN9=q?|+qiaSC_}FJ<0bR>FA2C;`fg8~zA~2~kbl}yjwN$?Vmv3_
+z?(kl}<Z{s#lS7`i@)AwmD^6Y5>VK)yUg4G776~?g_sAt@if?Rn4|;NILT4X~{S6I$
+zy#?n__@tOs&I)1Wp1V6dZ{cUBH74O}OyYH3ot(5vEt5NHovOnoAN|#{9v+Iyy`G`S
+zJ*|~>L%<cWC+yNoj9s&=e{G%W{H-8W+VIv%F7x0?*FNvQI+@{wto^h_kf^%H%)s#f
+l{~E`{CSb|J1}ajR85WBMK9ig=-3=(h;OXk;vd$@?2>?e)45$DA
+
+diff --git a/apps/browser/webpack/smartfill-brand/index.js b/apps/browser/webpack/smartfill-brand/index.js
+new file mode 100644
+index 0000000..9df8fca
+--- /dev/null
++++ b/apps/browser/webpack/smartfill-brand/index.js
+@@ -0,0 +1,172 @@
++/**
++ * Smartfill fork (Taviri): everything the build does to brand the extension, driven by
++ * `brand.json`. `SMARTFILL_BRANDING=off` builds with upstream's name, artwork, colours and texts.
++ *
++ * - Artwork: Bitwarden's logo, app icon and shield modules are swapped for the brand's
++ *   (`src/autofill/smartfill/brand/`). Toolbar icons come from `images/` (see webpack.base.js).
++ * - Colours: Bitwarden's blues become the brand colour in the emitted CSS and in-page scripts
++ *   (`recolor.js`).
++ * - Texts: "Bitwarden" becomes the brand name in every locale and page title, except where it
++ *   names Bitwarden the company, its servers or its other products and plans, and the copyright.
++ */
++const path = require("path");
++
++const { SmartfillRecolorPlugin } = require("./recolor");
++
++const brand = require("./brand.json");
++
++const brandingEnabled = process.env.SMARTFILL_BRANDING !== "off";
++
++/** Where the brand's artwork modules live, and which Bitwarden modules they replace. */
++const BRAND_DIR = path.resolve(__dirname, "../../src/autofill/smartfill/brand");
++const ARTWORK = [
++  {
++    context: /libs[\\/]assets[\\/]src[\\/]svg[\\/]svgs$/,
++    request: "./bitwarden-logo.icon",
++    file: "brand-logo.icon.ts",
++  },
++  {
++    context: /libs[\\/]assets[\\/]src[\\/]svg[\\/]svgs$/,
++    request: "./bitwarden-icon",
++    file: "brand-icon.ts",
++  },
++  {
++    context: /libs[\\/]assets[\\/]src[\\/]svg[\\/]svgs$/,
++    request: "./shield",
++    file: "brand-shield.ts",
++  },
++  {
++    context: /src[\\/]autofill[\\/]content[\\/]components[\\/]icons$/,
++    request: "./shield",
++    file: "brand-content-shield.ts",
++  },
++];
++
++/**
++ * "Bitwarden" followed by one of these stays: it names the company (copyright), its servers, or
++ * Bitwarden's own products and paid plans, which a Taviri build still talks to.
++ */
++const KEEP_AFTER = [
++  "Inc",
++  ", Inc",
++  "Authenticator",
++  "Secrets Manager",
++  "Premium",
++  "Families",
++  "Teams",
++  "Enterprise",
++  "Business",
++  "Cloud",
++  "cloud",
++  "server",
++  "Server",
++  "Help Center",
++  "Help center",
++  "Community",
++  "Customer Support",
++  "support",
++  "Support",
++];
++
++/**
++ * Texts that point at Bitwarden itself (its website, help center, support, downloads, store
++ * page, newsletter, business offer) keep its name: the links behind them go to Bitwarden.
++ */
++const KEEP_KEYS = new Set([
++  "moreFromBitwarden",
++  "bitwardenForBusiness",
++  "bitwardenForBusinessPageDesc",
++  "helpCenter",
++  "communityForums",
++  "contactSupport",
++  "bitwardenSupport",
++  "continueToHelpCenterDesc",
++  "continueToBrowserExtensionStoreDesc",
++  "downloadBitwarden",
++  "downloadBitwardenOnAllDevices",
++  "downloadBitwardenApps",
++  "getTheMobileAppDesc",
++  "receiveMarketingEmails",
++]);
++const BRAND_WORD = new RegExp(
++  `\\bBitwarden\\b(?!\\.\\w)(?!\\s*(?:${KEEP_AFTER.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b)`,
++  "g",
++);
++
++function rebrandText(text) {
++  if (typeof text !== "string" || /©|\(c\)|copyright/i.test(text)) {
++    return text;
++  }
++  return text.replace(BRAND_WORD, brand.name);
++}
++
++/** CopyWebpackPlugin transform for `_locales/<lang>/messages.json`. */
++function rebrandLocaleFile(content, absoluteFrom) {
++  if (!brandingEnabled || !absoluteFrom.endsWith("messages.json")) {
++    return content;
++  }
++  const messages = JSON.parse(content.toString());
++  for (const [key, entry] of Object.entries(messages)) {
++    if (entry && typeof entry.message === "string" && !KEEP_KEYS.has(key)) {
++      entry.message = rebrandText(entry.message);
++    }
++  }
++  return JSON.stringify(messages, null, 2);
++}
++
++/** Renames Bitwarden in the <title> of the extension's pages. */
++class SmartfillHtmlTitlePlugin {
++  constructor(HtmlWebpackPlugin) {
++    this.HtmlWebpackPlugin = HtmlWebpackPlugin;
++  }
++
++  apply(compiler) {
++    compiler.hooks.compilation.tap("SmartfillHtmlTitlePlugin", (compilation) => {
++      this.HtmlWebpackPlugin.getHooks(compilation).beforeEmit.tap(
++        "SmartfillHtmlTitlePlugin",
++        (data) => {
++          data.html = data.html.replace(/<title>([^<]*)<\/title>/g, (match, title) =>
++            match.replace(title, rebrandText(title)),
++          );
++          return data;
++        },
++      );
++    });
++  }
++}
++
++/** The plugins both builds (popup + content scripts, background) get. */
++function smartfillPlugins(webpack) {
++  if (!brandingEnabled) {
++    return [];
++  }
++  return [
++    new webpack.NormalModuleReplacementPlugin(
++      /^\.\/(bitwarden-logo\.icon|bitwarden-icon|shield)$/,
++      (resource) => {
++        const swap = ARTWORK.find(
++          (entry) =>
++            entry.request === resource.request && entry.context.test(resource.context || ""),
++        );
++        if (swap) {
++          resource.request = path.join(BRAND_DIR, swap.file);
++        }
++      },
++    ),
++    new SmartfillRecolorPlugin({
++      brandColour: brand.colour,
++      // All stylesheets and UI scripts (colours set from code: avatars, in-page UI, artwork).
++      test: (name) =>
++        /\.css$/.test(name) || (/\.js$/.test(name) && !/(^|\/)background\.js$|wasm/.test(name)),
++    }),
++  ];
++}
++
++module.exports = {
++  brand,
++  brandingEnabled,
++  rebrandText,
++  rebrandLocaleFile,
++  smartfillPlugins,
++  SmartfillHtmlTitlePlugin,
++};
+diff --git a/apps/browser/webpack/smartfill-brand/recolor.js b/apps/browser/webpack/smartfill-brand/recolor.js
+new file mode 100644
+index 0000000..6cf29a2
+--- /dev/null
++++ b/apps/browser/webpack/smartfill-brand/recolor.js
+@@ -0,0 +1,152 @@
++/**
++ * Smartfill fork (Taviri): turns Bitwarden's blues into the brand colour.
++ *
++ * Every saturated blue is rotated to the brand hue in OKLCH, keeping its lightness, so light tints
++ * stay light and dark shades stay dark (the same rule as the Taviri web vault and Android app).
++ * Chroma is kept, then lowered until the colour fits in sRGB. Neutral, slightly bluish greys are
++ * left alone. Works on CSS and JS text: `#rrggbb`, `rgb()/rgba()` with commas, and the
++ * `--name: r g b;` triplets of Bitwarden's Tailwind theme.
++ */
++
++const clamp01 = (x) => Math.min(1, Math.max(0, x));
++const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
++const toGamma = (c) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
++
++function rgbToOklch(r8, g8, b8) {
++  const r = toLinear(r8 / 255);
++  const g = toLinear(g8 / 255);
++  const b = toLinear(b8 / 255);
++  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
++  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
++  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
++  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
++  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
++  const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
++  const C = Math.sqrt(A * A + B * B);
++  let h = (Math.atan2(B, A) * 180) / Math.PI;
++  if (h < 0) {
++    h += 360;
++  }
++  return { L, C, h };
++}
++
++function oklchToLinearRgb(L, C, h) {
++  const A = C * Math.cos((h * Math.PI) / 180);
++  const B = C * Math.sin((h * Math.PI) / 180);
++  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
++  const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
++  const s = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
++  return [
++    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
++    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
++    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
++  ];
++}
++
++function oklchToRgb(L, C, h) {
++  let chroma = C;
++  let linear = oklchToLinearRgb(L, chroma, h);
++  // Lower the chroma until the colour is displayable.
++  for (let step = 0; step < 60 && linear.some((c) => c < -0.0001 || c > 1.0001); step++) {
++    chroma *= 0.95;
++    linear = oklchToLinearRgb(L, chroma, h);
++  }
++  return linear.map((c) => Math.round(clamp01(toGamma(clamp01(c))) * 255));
++}
++
++/** The brand colour's hue, from `#rrggbb`. */
++function hueOf(hex) {
++  const n = parseInt(hex.replace("#", ""), 16);
++  return rgbToOklch((n >> 16) & 255, (n >> 8) & 255, n & 255).h;
++}
++
++/**
++ * Whether a colour is one of Bitwarden's blues (as opposed to a neutral grey with a blue cast):
++ * a blue hue with real chroma, or a very light tint that still carries some.
++ */
++function isBrandBlue({ L, C, h }) {
++  if (h < 235 || h > 290) {
++    return false;
++  }
++  return (
++    C >= 0.07 || (L >= 0.7 && C >= 0.05) || (L >= 0.86 && C >= 0.025) || (L >= 0.95 && C >= 0.012)
++  );
++}
++
++function makeRecolor(brandHex) {
++  const brandHue = hueOf(brandHex);
++  const cache = new Map();
++
++  const rotate = (r, g, b) => {
++    const key = `${r},${g},${b}`;
++    if (!cache.has(key)) {
++      const lch = rgbToOklch(r, g, b);
++      cache.set(key, isBrandBlue(lch) ? oklchToRgb(lch.L, lch.C, brandHue) : null);
++    }
++    return cache.get(key);
++  };
++
++  const hex2 = (n) => n.toString(16).padStart(2, "0");
++
++  /** Rewrites the blues in a CSS or JS text; returns it unchanged when nothing is blue. */
++  return function recolor(text) {
++    let out = text.replace(/#([0-9a-fA-F]{6})(?![0-9a-zA-Z_-])/g, (match, hex) => {
++      const n = parseInt(hex, 16);
++      const rotated = rotate((n >> 16) & 255, (n >> 8) & 255, n & 255);
++      if (!rotated) {
++        return match;
++      }
++      const result = `#${rotated.map(hex2).join("")}`;
++      return hex === hex.toUpperCase() ? result.toUpperCase() : result;
++    });
++    out = out.replace(
++      /(rgba?\(\s*)(\d{1,3})(\s*,\s*)(\d{1,3})(\s*,\s*)(\d{1,3})/g,
++      (match, open, r, sep1, g, sep2, b) => {
++        const rotated = rotate(+r, +g, +b);
++        return rotated ? `${open}${rotated[0]}${sep1}${rotated[1]}${sep2}${rotated[2]}` : match;
++      },
++    );
++    out = out.replace(
++      /(--[\w-]+:\s*)(\d{1,3})(\s+)(\d{1,3})(\s+)(\d{1,3})(\s*[;}])/g,
++      (match, start, r, s1, g, s2, b, end) => {
++        const rotated = rotate(+r, +g, +b);
++        return rotated ? `${start}${rotated[0]}${s1}${rotated[1]}${s2}${rotated[2]}${end}` : match;
++      },
++    );
++    return out;
++  };
++}
++
++/**
++ * Webpack plugin: recolours the emitted CSS, and the JS of the in-page UI (content scripts,
++ * inline menu, notification bar), before minification.
++ */
++class SmartfillRecolorPlugin {
++  constructor({ brandColour, test }) {
++    this.recolor = makeRecolor(brandColour);
++    this.test = test;
++  }
++
++  apply(compiler) {
++    const { Compilation, sources } = compiler.webpack;
++    compiler.hooks.thisCompilation.tap("SmartfillRecolorPlugin", (compilation) => {
++      compilation.hooks.processAssets.tap(
++        { name: "SmartfillRecolorPlugin", stage: Compilation.PROCESS_ASSETS_STAGE_OPTIMIZE },
++        (assets) => {
++          for (const name of Object.keys(assets)) {
++            if (!this.test(name)) {
++              continue;
++            }
++            const source = compilation.getAsset(name).source.source().toString();
++            const recoloured = this.recolor(source);
++            if (recoloured !== source) {
++              compilation.updateAsset(name, new sources.RawSource(recoloured));
++            }
++          }
++        },
++      );
++    });
++  }
++}
++
++module.exports = { makeRecolor, rgbToOklch, isBrandBlue, SmartfillRecolorPlugin };

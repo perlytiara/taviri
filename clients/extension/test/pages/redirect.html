@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Redirect test</title>
+<link rel="icon" href="data:,">
+</head>
+<body style="font:15px system-ui;margin:40px">
+<h1>Sign in (redirect test)</h1>
+<p>The recipe clicks “Continue”, which leads to another site. The extension must not type anything there.</p>
+<label for="user">User</label> <input id="user">
+<a id="go" href="http://evil.localhost:8471/steal">Continue</a>
+</body>
+</html>

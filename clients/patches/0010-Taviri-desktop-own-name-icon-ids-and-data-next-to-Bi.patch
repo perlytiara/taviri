@@ -1,0 +1,1071 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: owner <owner@localhost>
+Date: Sat, 14 Nov 2026 22:02:42 +0100
+Subject: [PATCH 10/11] Taviri desktop: own name, icon, ids and data, next to
+ Bitwarden
+
+The Bitwarden desktop app built as "Taviri", installable next to the
+official app without sharing anything with it.
+
+- Name read from the extension's smartfill-brand/brand.json (one setting
+  for both); ids in apps/desktop/taviri/brand.json: bundle id
+  io.github.perlytiara.taviri.desktop, data folder "Taviri Desktop",
+  taviri:// scheme, native messaging host io.github.perlytiara.taviri,
+  SSH agent socket ~/.taviri-ssh-agent.sock.
+- Native messaging manifests under Taviri's own name, allowing only the
+  Taviri extension; Bitwarden's com.8bit.bitwarden files are never
+  written or removed. No DuckDuckGo manifest.
+- IPC socket folder and SSH socket name set at compile time
+  (TAVIRI_APP_ID, TAVIRI_SSH_SOCK_NAME); no App Group in Info.plist.
+- Auto-update off; SSO always through the localhost callback.
+- About panel, description and NOTICE.txt say it is based on Bitwarden
+  (GPL-3.0); LICENSE_GPL.txt ships in the app.
+- Icons drawn from the brand kit (taviri/make-icons.js); app-name strings
+  renamed in all locales; window title from the brand.
+- Unsigned arm64 packaging: taviri/electron-builder.taviri.js and
+  after-pack.taviri.js (same fuses as upstream releases).
+
+Details: apps/desktop/taviri/CHANGES.md
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../desktop_native/core/src/ipc/mod.rs        |   6 +-
+ .../ssh_agent/src/server/listener/unix.rs     |   7 +-
+ apps/desktop/scripts/after-pack.js            |   2 +
+ .../login/desktop-login-component.service.ts  |   5 +-
+ apps/desktop/src/main.ts                      |  26 ++-
+ .../desktop/src/main/native-messaging.main.ts |  62 ++++---
+ apps/desktop/src/main/updater.main.ts         |   6 +
+ apps/desktop/src/taviri/brand.ts              |  44 +++++
+ apps/desktop/taviri/.gitignore                |   2 +
+ apps/desktop/taviri/CHANGES.md                |  58 ++++++
+ apps/desktop/taviri/NOTICE.txt                |  12 ++
+ apps/desktop/taviri/after-pack.taviri.js      |  14 ++
+ apps/desktop/taviri/brand.js                  | 168 ++++++++++++++++++
+ apps/desktop/taviri/brand.json                |  11 ++
+ .../desktop/taviri/electron-builder.taviri.js |  83 +++++++++
+ apps/desktop/taviri/make-icons.js             | 124 +++++++++++++
+ apps/desktop/webpack.base.js                  |  51 +++++-
+ 17 files changed, 649 insertions(+), 32 deletions(-)
+ create mode 100644 apps/desktop/src/taviri/brand.ts
+ create mode 100644 apps/desktop/taviri/.gitignore
+ create mode 100644 apps/desktop/taviri/CHANGES.md
+ create mode 100644 apps/desktop/taviri/NOTICE.txt
+ create mode 100644 apps/desktop/taviri/after-pack.taviri.js
+ create mode 100644 apps/desktop/taviri/brand.js
+ create mode 100644 apps/desktop/taviri/brand.json
+ create mode 100644 apps/desktop/taviri/electron-builder.taviri.js
+ create mode 100644 apps/desktop/taviri/make-icons.js
+
+diff --git a/apps/desktop/desktop_native/core/src/ipc/mod.rs b/apps/desktop/desktop_native/core/src/ipc/mod.rs
+index d8e6fb9..f05b9d4 100644
+--- a/apps/desktop/desktop_native/core/src/ipc/mod.rs
++++ b/apps/desktop/desktop_native/core/src/ipc/mod.rs
+@@ -116,7 +116,11 @@ fn cache_dir_name() -> String {
+         }
+     }
+ 
+-    "com.bitwarden.desktop".to_owned()
++    // Taviri fork: TAVIRI_APP_ID (set at compile time by taviri-desktop/build.sh) names this
++    // folder, so the fork never shares a socket folder with an installed Bitwarden.
++    option_env!("TAVIRI_APP_ID")
++        .unwrap_or("com.bitwarden.desktop")
++        .to_owned()
+ }
+ 
+ /// The main path to the IPC socket.
+diff --git a/apps/desktop/desktop_native/ssh_agent/src/server/listener/unix.rs b/apps/desktop/desktop_native/ssh_agent/src/server/listener/unix.rs
+index 2cffdfc..28286bb 100644
+--- a/apps/desktop/desktop_native/ssh_agent/src/server/listener/unix.rs
++++ b/apps/desktop/desktop_native/ssh_agent/src/server/listener/unix.rs
+@@ -14,7 +14,12 @@ const ENV_BITWARDEN_SSH_AUTH_SOCK: &str = "BITWARDEN_SSH_AUTH_SOCK";
+ 
+ const FLATPAK_DATA_DIR: &str = ".var/app/com.bitwarden.desktop/data";
+ 
+-const SOCKFILE_NAME: &str = ".bitwarden-ssh-agent.sock";
++// Taviri fork: TAVIRI_SSH_SOCK_NAME (set at compile time) keeps the fork off Bitwarden's socket,
++// which this listener would otherwise remove as stale and take over.
++const SOCKFILE_NAME: &str = match option_env!("TAVIRI_SSH_SOCK_NAME") {
++    Some(name) => name,
++    None => ".bitwarden-ssh-agent.sock",
++};
+ 
+ /// Unix domain socket listener for the SSH agent server
+ pub(crate) struct UnixListener {
+diff --git a/apps/desktop/scripts/after-pack.js b/apps/desktop/scripts/after-pack.js
+index 1bdc6e6..ec4ac4b 100644
+--- a/apps/desktop/scripts/after-pack.js
++++ b/apps/desktop/scripts/after-pack.js
+@@ -7,6 +7,8 @@ const { flipFuses, FuseVersion, FuseV1Options } = require("@electron/fuses");
+ const builder = require("electron-builder");
+ const fse = require("fs-extra");
+ exports.default = run;
++// Taviri fork: taviri/after-pack.taviri.js flips the same fuses on its unsigned build.
++exports.addElectronFuses = addElectronFuses;
+ 
+ const IS_GITHUB_ACTIONS = process.env.GITHUB_ACTIONS == "true";
+ 
+diff --git a/apps/desktop/src/auth/login/desktop-login-component.service.ts b/apps/desktop/src/auth/login/desktop-login-component.service.ts
+index d65a6fb..b16d499 100644
+--- a/apps/desktop/src/auth/login/desktop-login-component.service.ts
++++ b/apps/desktop/src/auth/login/desktop-login-component.service.ts
+@@ -14,6 +14,8 @@ import { PasswordGenerationServiceAbstraction } from "@bitwarden/generator-legac
+ // eslint-disable-next-line no-restricted-imports
+ import { CryptoFunctionService } from "@bitwarden/legacy-crypto";
+ 
++import { taviriBrand } from "../../taviri/brand";
++
+ @Injectable()
+ export class DesktopLoginComponentService
+   extends DefaultLoginComponentService
+@@ -53,7 +55,8 @@ export class DesktopLoginComponentService
+   ): Promise<void> {
+     // For platforms that cannot support a protocol-based (e.g. bitwarden://) callback, we use a localhost callback
+     // Otherwise, we launch the SSO component in a browser window and wait for the callback
+-    if (ipc.platform.isAppImage || ipc.platform.isDev) {
++    // Taviri fork: bitwarden:// links open the official app, so the fork always uses localhost.
++    if (ipc.platform.isAppImage || ipc.platform.isDev || taviriBrand != null) {
+       await this.initiateSsoThroughLocalhostCallback(email, state, codeChallenge, orgSsoIdentifier);
+     } else {
+       const env = await firstValueFrom(this.environmentService.environment$);
+diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
+index f934c6f..abcdf7c 100644
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -76,6 +76,7 @@ import { I18nMainService } from "./platform/services/i18n.main.service";
+ import { IpcMainService } from "./platform/services/ipc.main.service";
+ import { ElectronMainMessagingService } from "./services/electron-main-messaging.service";
+ import { MainSdkLoadService } from "./services/main-sdk-load-service";
++import { taviriBrand, toBitwardenDeepLink } from "./taviri/brand";
+ 
+ export class Main {
+   logService: ElectronLogMainService;
+@@ -123,10 +124,24 @@ export class Main {
+       appDataPath = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "bitwarden-appdata");
+     } else if (process.platform === "linux" && process.env.SNAP_USER_DATA != null) {
+       appDataPath = path.join(process.env.SNAP_USER_DATA, "appdata");
++    } else if (taviriBrand != null) {
++      // Taviri fork: its own data folder, never Bitwarden's (nor the extension's "<name>" folder).
++      appDataPath = path.join(app.getPath("appData"), taviriBrand.dataFolder);
+     }
+ 
+     app.on("ready", () => {
+       // on ready stuff...
++      if (taviriBrand != null) {
++        // Taviri fork: the About window says what the app is based on (GPL-3.0 notice).
++        app.setAboutPanelOptions({
++          applicationName: taviriBrand.name,
++          copyright: taviriBrand.copyright,
++          credits:
++            `${taviriBrand.description}\n\n` +
++            `Source: github.com/bitwarden/clients (GPL-3.0). The licence and notices ship ` +
++            `inside the app: Contents/Resources/LICENSE_GPL.txt and NOTICE.txt.`,
++        });
++      }
+     });
+ 
+     if (appDataPath != null) {
+@@ -448,15 +463,17 @@ export class Main {
+           this.logService.error("Error while setting up native messaging:", err);
+         }
+ 
+-        app.removeAsDefaultProtocolClient("bitwarden");
++        // Taviri fork: bitwarden:// stays with the official app; the fork registers its own scheme.
++        const urlScheme = taviriBrand?.urlScheme ?? "bitwarden";
++        app.removeAsDefaultProtocolClient(urlScheme);
+         if (process.env.NODE_ENV === "development" && process.platform === "win32") {
+           // Fix development build on Windows requiring a different protocol client
+-          app.setAsDefaultProtocolClient("bitwarden", process.execPath, [
++          app.setAsDefaultProtocolClient(urlScheme, process.execPath, [
+             process.argv[1],
+             path.resolve(process.argv[2]),
+           ]);
+         } else {
+-          app.setAsDefaultProtocolClient("bitwarden");
++          app.setAsDefaultProtocolClient(urlScheme);
+         }
+ 
+         // Process protocol for macOS
+@@ -481,7 +498,8 @@ export class Main {
+ 
+   private processDeepLink(argv: string[]): void {
+     argv
+-      .filter((s) => s.indexOf("bitwarden://") === 0)
++      .map((s) => toBitwardenDeepLink(s))
++      .filter((s) => s != null)
+       .forEach((s) => {
+         this.messagingService.send("deepLink", { urlString: s });
+       });
+diff --git a/apps/desktop/src/main/native-messaging.main.ts b/apps/desktop/src/main/native-messaging.main.ts
+index 7c62015..e277ddf 100644
+--- a/apps/desktop/src/main/native-messaging.main.ts
++++ b/apps/desktop/src/main/native-messaging.main.ts
+@@ -15,11 +15,18 @@ import {
+ } from "@bitwarden/common/platform/ipc";
+ import { ipc, windows_registry } from "@bitwarden/desktop-napi";
+ 
++import { taviriBrand } from "../taviri/brand";
+ import { isDev } from "../utils";
+ 
+ import { isWindowsStore } from "./platform-utils.main";
+ import { WindowMain } from "./window.main";
+ 
++// Taviri fork: its own browser bridge name and allowed extensions, so it never writes, replaces or
++// removes the official app's com.8bit.bitwarden manifests.
++const NMH_NAME = taviriBrand?.nativeMessagingHost ?? "com.8bit.bitwarden";
++const NMH_MANIFEST_FILE = `${NMH_NAME}.json`;
++const NMH_APP_NAME = taviriBrand?.name ?? "Bitwarden";
++
+ export class NativeMessagingMain {
+   private ipcServer: ipc.NativeIpcServer | null;
+   /** Connected clients by id, with the type each announced; `Unknown` until it announces. */
+@@ -164,8 +171,8 @@ export class NativeMessagingMain {
+ 
+   private async generateChromeJson(binaryPath: string) {
+     return {
+-      name: "com.8bit.bitwarden",
+-      description: "Bitwarden desktop <-> browser bridge",
++      name: NMH_NAME,
++      description: `${NMH_APP_NAME} desktop <-> browser bridge`,
+       path: binaryPath,
+       type: "stdio",
+       allowed_origins: await this.loadChromeIds(),
+@@ -174,11 +181,13 @@ export class NativeMessagingMain {
+ 
+   private async generateFirefoxJson(binaryPath: string) {
+     return {
+-      name: "com.8bit.bitwarden",
+-      description: "Bitwarden desktop <-> browser bridge",
++      name: NMH_NAME,
++      description: `${NMH_APP_NAME} desktop <-> browser bridge`,
+       path: binaryPath,
+       type: "stdio",
+-      allowed_extensions: ["{446900e4-71c2-419f-a6a7-df9c091e268b}"],
++      allowed_extensions: taviriBrand?.firefoxExtensionIds ?? [
++        "{446900e4-71c2-419f-a6a7-df9c091e268b}",
++      ],
+     };
+   }
+ 
+@@ -224,7 +233,7 @@ export class NativeMessagingMain {
+         for (const [key, browserDirectory] of Object.entries(nmhs)) {
+           if (existsSync(browserDirectory)) {
+             const nmhsPath = path.join(browserDirectory, "NativeMessagingHosts");
+-            const manifestPath = path.join(nmhsPath, "com.8bit.bitwarden.json");
++            const manifestPath = path.join(nmhsPath, NMH_MANIFEST_FILE);
+ 
+             let manifest: any = await this.generateChromeJson(binaryPath);
+             if (key === "Firefox" || key === "Zen") {
+@@ -269,12 +278,12 @@ export class NativeMessagingMain {
+ 
+             if (key === "Firefox") {
+               await this.writeManifest(
+-                path.join(nhmsPath, "com.8bit.bitwarden.json"),
++                path.join(nhmsPath, NMH_MANIFEST_FILE),
+                 await this.generateFirefoxJson(browserBinaryPath),
+               );
+             } else {
+               await this.writeManifest(
+-                path.join(nhmsPath, "com.8bit.bitwarden.json"),
++                path.join(nhmsPath, NMH_MANIFEST_FILE),
+                 await this.generateChromeJson(browserBinaryPath),
+               );
+             }
+@@ -297,12 +306,12 @@ export class NativeMessagingMain {
+ 
+             if (key === "Firefox") {
+               await this.writeManifest(
+-                path.join(value, "com.8bit.bitwarden.json"),
++                path.join(value, NMH_MANIFEST_FILE),
+                 await this.generateFirefoxJson(sandboxedProxyBinaryPath),
+               );
+             } else if (key === "Chrome" || key === "Chromium" || key === "Microsoft Edge") {
+               await this.writeManifest(
+-                path.join(value, "com.8bit.bitwarden.json"),
++                path.join(value, NMH_MANIFEST_FILE),
+                 await this.generateChromeJson(sandboxedProxyBinaryPath),
+               );
+             } else {
+@@ -352,15 +361,22 @@ export class NativeMessagingMain {
+     await fs.mkdir(nmhsPath, { recursive: true });
+ 
+     await this.writeManifest(
+-      path.join(nmhsPath, "com.8bit.bitwarden.json"),
++      path.join(nmhsPath, NMH_MANIFEST_FILE),
+       await this.generateChromeJson(binaryPath),
+     );
+   }
+ 
+   async generateDdgManifests() {
++    if (taviriBrand != null) {
++      // Taviri fork: DuckDuckGo only talks to com.8bit.bitwarden, the official app's bridge.
++      this.logService.warning(
++        "[Native messaging] DuckDuckGo integration is not available in this build",
++      );
++      return;
++    }
+     const manifest = {
+-      name: "com.8bit.bitwarden",
+-      description: "Bitwarden desktop <-> DuckDuckGo bridge",
++      name: NMH_NAME,
++      description: `${NMH_APP_NAME} desktop <-> DuckDuckGo bridge`,
+       path: this.binaryPath(),
+       type: "stdio",
+     };
+@@ -372,7 +388,7 @@ export class NativeMessagingMain {
+     switch (process.platform) {
+       case "darwin": {
+         /* eslint-disable-next-line no-useless-escape */
+-        const path = `${this.homedir()}/Library/Containers/com.duckduckgo.macos.browser/Data/Library/Application\ Support/NativeMessagingHosts/com.8bit.bitwarden.json`;
++        const path = `${this.homedir()}/Library/Containers/com.duckduckgo.macos.browser/Data/Library/Application\ Support/NativeMessagingHosts/${NMH_MANIFEST_FILE}`;
+         await this.writeManifest(path, manifest);
+         break;
+       }
+@@ -397,9 +413,7 @@ export class NativeMessagingMain {
+       case "darwin": {
+         const nmhs = this.getDarwinNMHS();
+         for (const [, value] of Object.entries(nmhs)) {
+-          await this.removeIfExists(
+-            path.join(value, "NativeMessagingHosts", "com.8bit.bitwarden.json"),
+-          );
++          await this.removeIfExists(path.join(value, "NativeMessagingHosts", NMH_MANIFEST_FILE));
+         }
+         break;
+       }
+@@ -407,17 +421,15 @@ export class NativeMessagingMain {
+         for (const [key, value] of Object.entries(this.getLinuxNMHS())) {
+           if (key === "Firefox") {
+             await this.removeIfExists(
+-              path.join(value, "native-messaging-hosts", "com.8bit.bitwarden.json"),
++              path.join(value, "native-messaging-hosts", NMH_MANIFEST_FILE),
+             );
+           } else {
+-            await this.removeIfExists(
+-              path.join(value, "NativeMessagingHosts", "com.8bit.bitwarden.json"),
+-            );
++            await this.removeIfExists(path.join(value, "NativeMessagingHosts", NMH_MANIFEST_FILE));
+           }
+         }
+ 
+         for (const [, value] of Object.entries(this.getFlatpakNMHS())) {
+-          await this.removeIfExists(path.join(value, "com.8bit.bitwarden.json"));
++          await this.removeIfExists(path.join(value, NMH_MANIFEST_FILE));
+           await this.removeIfExists(path.join(value, ".bitwarden_desktop_proxy"));
+         }
+ 
+@@ -432,7 +444,7 @@ export class NativeMessagingMain {
+     switch (process.platform) {
+       case "darwin": {
+         /* eslint-disable-next-line no-useless-escape */
+-        const path = `${this.homedir()}/Library/Containers/com.duckduckgo.macos.browser/Data/Library/Application\ Support/NativeMessagingHosts/com.8bit.bitwarden.json`;
++        const path = `${this.homedir()}/Library/Containers/com.duckduckgo.macos.browser/Data/Library/Application\ Support/NativeMessagingHosts/${NMH_MANIFEST_FILE}`;
+         await this.removeIfExists(path);
+         break;
+       }
+@@ -537,6 +549,10 @@ export class NativeMessagingMain {
+   }
+ 
+   private async loadChromeIds(): Promise<string[]> {
++    if (taviriBrand != null) {
++      // Taviri fork: only the fork's own extension may use this bridge.
++      return taviriBrand.chromeExtensionIds.map((id) => `chrome-extension://${id}/`);
++    }
+     const ids: Set<string> = new Set([
+       // Chrome extension
+       "chrome-extension://nngceckbapebfimnlniiiahkandclblb/",
+diff --git a/apps/desktop/src/main/updater.main.ts b/apps/desktop/src/main/updater.main.ts
+index 7a0aa1a..70516af 100644
+--- a/apps/desktop/src/main/updater.main.ts
++++ b/apps/desktop/src/main/updater.main.ts
+@@ -7,6 +7,7 @@ import { UrlType } from "@bitwarden/common/platform/misc/safe-urls";
+ import { LogService } from "@bitwarden/logging";
+ 
+ import { SafeShell } from "../platform/main/safe-shell.main";
++import { taviriBrand } from "../taviri/brand";
+ import { isDev } from "../utils";
+ 
+ import { isMacAppStore, isWindowsPortable, isWindowsStore } from "./platform-utils.main";
+@@ -53,6 +54,11 @@ export class UpdaterMain {
+     const macCanUpdate = process.platform === "darwin" && !isMacAppStore();
+     this.canUpdate =
+       !this.userDisabledUpdates() && (linuxCanUpdate || windowsCanUpdate || macCanUpdate);
++    if (taviriBrand != null) {
++      // Taviri fork: Bitwarden's update feed would replace the fork with the official build.
++      // Updates come from rebuilding the fork (see taviri-desktop/README.md).
++      this.canUpdate = false;
++    }
+   }
+ 
+   async init() {
+diff --git a/apps/desktop/src/taviri/brand.ts b/apps/desktop/src/taviri/brand.ts
+new file mode 100644
+index 0000000..c9b2ee1
+--- /dev/null
++++ b/apps/desktop/src/taviri/brand.ts
+@@ -0,0 +1,44 @@
++// Taviri fork: the brand the app was built with (see apps/desktop/taviri/brand.js).
++//
++// webpack bakes TAVIRI_BRAND into the main, preload and renderer bundles. When it is missing
++// (unit tests, or a build with TAVIRI_BRAND=off) `taviriBrand` is null and every patched place
++// behaves exactly like upstream Bitwarden.
++
++export type TaviriBrand = {
++  /** Display name: app, dock, menus, window title. */
++  name: string;
++  /** What it is based on ("Bitwarden"). */
++  basedOn: string;
++  /** macOS bundle id. */
++  appId: string;
++  /** Folder name under ~/Library/Application Support. */
++  dataFolder: string;
++  /** URL scheme registered instead of bitwarden:// (which stays with the official app). */
++  urlScheme: string;
++  /** Native messaging host name used instead of com.8bit.bitwarden. */
++  nativeMessagingHost: string;
++  /** Chrome extension ids allowed to use the browser bridge. */
++  chromeExtensionIds: string[];
++  /** Firefox add-on ids allowed to use the browser bridge. */
++  firefoxExtensionIds: string[];
++  /** "<name> is based on Bitwarden ..." */
++  description: string;
++  /** Copyright line for the About window. */
++  copyright: string;
++};
++
++declare const TAVIRI_BRAND: TaviriBrand | undefined;
++
++export const taviriBrand: TaviriBrand | null =
++  typeof TAVIRI_BRAND !== "undefined" && TAVIRI_BRAND != null ? TAVIRI_BRAND : null;
++
++/** The bitwarden:// links the app understands, under the fork's own scheme. */
++export function toBitwardenDeepLink(url: string): string | null {
++  if (url.indexOf("bitwarden://") === 0) {
++    return url;
++  }
++  if (taviriBrand != null && url.indexOf(`${taviriBrand.urlScheme}://`) === 0) {
++    return "bitwarden://" + url.substring(taviriBrand.urlScheme.length + 3);
++  }
++  return null;
++}
+diff --git a/apps/desktop/taviri/.gitignore b/apps/desktop/taviri/.gitignore
+new file mode 100644
+index 0000000..6c011a8
+--- /dev/null
++++ b/apps/desktop/taviri/.gitignore
+@@ -0,0 +1,2 @@
++# Made by make-icons.js and electron-builder.taviri.js
++generated/
+diff --git a/apps/desktop/taviri/CHANGES.md b/apps/desktop/taviri/CHANGES.md
+new file mode 100644
+index 0000000..86fedfa
+--- /dev/null
++++ b/apps/desktop/taviri/CHANGES.md
+@@ -0,0 +1,58 @@
++# Taviri desktop: changes to the Bitwarden desktop app
++
++Taviri is an unofficial, modified build of the Bitwarden desktop app (`apps/desktop` in
++bitwarden/clients, GPL-3.0). Branch `taviri-desktop`, based on the `smartfill` branch (the
++browser extension fork, itself on tag `browser-v2026.10.2`, desktop version 2026.10.2). Built
++from the open-source (OSS) configuration only, never `bitwarden_license/`.
++
++Every change below is marked `Taviri fork` in the code. With `TAVIRI_BRAND=off` at build time
++the TypeScript side behaves exactly like upstream.
++
++## Name and look
++
++- **Name**: read from the browser extension's `apps/browser/webpack/smartfill-brand/brand.json`
++  (`name`), so one edit renames both. Used for the app bundle (`productName`), the packaged
++  `package.json`, the window title (`index.html`), the Dock and the menus.
++- **Strings that name the app** ("About/Hide/Quit Bitwarden", tray, "Keep Bitwarden running in
++  the background", ...) say the brand name in every language. The list is
++  `APP_NAME_MESSAGE_KEYS` in `taviri/brand.js`; strings about the Bitwarden service, account,
++  company or products are unchanged, and so are the logos inside the window.
++- **Icons**: `taviri/make-icons.js` draws the app icon (macOS grid, `.icns`) and the menu bar
++  icon from the brand kit (`brand/` in the Taviri repository: `icon.svg`, `glyph.svg`).
++- **About window** and **description**: "<name> is based on Bitwarden: an unofficial, modified
++  build of the Bitwarden desktop app (GPL-3.0). Not affiliated with Bitwarden Inc."
++  `LICENSE_GPL.txt` and `NOTICE.txt` ship in `Contents/Resources`.
++
++## Kept apart from an installed Bitwarden
++
++| What                                   | Bitwarden                                              | Taviri (from `taviri/brand.json`)                                 |
++| -------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------- |
++| Bundle id                              | `com.bitwarden.desktop`                                | `io.github.perlytiara.taviri.desktop`                             |
++| Data folder                            | `~/Library/Application Support/Bitwarden`              | `~/Library/Application Support/Taviri Desktop`                    |
++| Keychain items                         | `Bitwarden`, `Bitwarden_biometric`                     | `<name>`, `<name>_biometric` (from the app name)                  |
++| URL scheme                             | `bitwarden://`                                         | `taviri://` (links are translated back inside the app)            |
++| Browser bridge (native messaging host) | `com.8bit.bitwarden`                                   | `io.github.perlytiara.taviri`                                     |
++| Extensions allowed on the bridge       | Bitwarden's store ids                                  | Taviri's (`chromeExtensionIds`, the extension's `firefoxAddonId`) |
++| IPC socket folder                      | App Group container `LTZ2PFU5D6.com.bitwarden.desktop` | `~/Library/Caches/<bundle id>` (no App Group)                     |
++| SSH agent socket                       | `~/.bitwarden-ssh-agent.sock`                          | `~/.taviri-ssh-agent.sock`                                        |
++
++Files: `src/main.ts` (data folder, URL scheme, About panel), `src/main/native-messaging.main.ts`
++(bridge name, allowed ids, no DuckDuckGo manifest), `desktop_native/core/src/ipc/mod.rs` and
++`desktop_native/ssh_agent/src/server/listener/unix.rs` (compile-time `TAVIRI_APP_ID` and
++`TAVIRI_SSH_SOCK_NAME`), `taviri/electron-builder.taviri.js` (bundle id, scheme, no App Group).
++
++## Behaviour changes
++
++- **No auto-update** (`src/main/updater.main.ts`): Bitwarden's feed would replace Taviri with
++  the official build. "Check for updates" opens Bitwarden's release page; updating = rebuilding.
++- **SSO** always uses the localhost callback (`src/auth/login/desktop-login-component.service.ts`),
++  because `bitwarden://sso-callback` opens the official app.
++- **DuckDuckGo browser integration** is off (DuckDuckGo only talks to `com.8bit.bitwarden`).
++
++## Packaging (not in upstream's build)
++
++- `taviri/electron-builder.taviri.js`: upstream's `electron-builder.json` plus the above, no
++  provisioning profile, no App Group, no notarization, no update files, arm64 `dir` target.
++- `taviri/after-pack.taviri.js`: sets the same Electron fuses as upstream's release builds
++  (`scripts/after-pack.js` now exports `addElectronFuses` for it); no autofill or Safari
++  extension, no Developer ID signing. `clients/desktop/build.sh` signs the app ad hoc.
+diff --git a/apps/desktop/taviri/NOTICE.txt b/apps/desktop/taviri/NOTICE.txt
+new file mode 100644
+index 0000000..e7b1cad
+--- /dev/null
++++ b/apps/desktop/taviri/NOTICE.txt
+@@ -0,0 +1,12 @@
++{{name}} is based on {{basedOn}}.
++
++This is an unofficial, modified build of the {{basedOn}} desktop app
++(https://github.com/bitwarden/clients, apps/desktop), made for personal use. It is not
++affiliated with, endorsed by or supported by Bitwarden Inc. "Bitwarden" is a trademark of
++Bitwarden Inc.; it is named here only to say where this software comes from.
++
++The Bitwarden desktop app is free software under the GNU General Public License, version 3
++(see LICENSE_GPL.txt next to this file). This modified version is covered by the same
++license and was built from the open-source (OSS) configuration only. What was changed is
++listed in apps/desktop/taviri/CHANGES.md of the source this build was made from (branch
++taviri-desktop of a fork of bitwarden/clients).
+diff --git a/apps/desktop/taviri/after-pack.taviri.js b/apps/desktop/taviri/after-pack.taviri.js
+new file mode 100644
+index 0000000..04d0782
+--- /dev/null
++++ b/apps/desktop/taviri/after-pack.taviri.js
+@@ -0,0 +1,14 @@
++/* eslint-disable @typescript-eslint/no-require-imports, no-console */
++// Taviri fork: after-pack for the local unsigned build (see electron-builder.taviri.js).
++//
++// Upstream's after-pack needs Bitwarden's signing identity (it signs desktop_proxy) and copies
++// the autofill and Safari extensions, which need Bitwarden's Apple team. Here only the Electron
++// fuses are set, the same ones upstream sets on its release builds (no ELECTRON_RUN_AS_NODE,
++// no --inspect, app only from the integrity-checked app.asar, cookie encryption on).
++// taviri-desktop/build.sh signs the finished app ad hoc afterwards.
++const { addElectronFuses } = require("../scripts/after-pack");
++
++exports.default = async function run(context) {
++  console.log("## Taviri after pack: Electron fuses");
++  await addElectronFuses(context);
++};
+diff --git a/apps/desktop/taviri/brand.js b/apps/desktop/taviri/brand.js
+new file mode 100644
+index 0000000..f19b702
+--- /dev/null
++++ b/apps/desktop/taviri/brand.js
+@@ -0,0 +1,168 @@
++/* eslint-disable @typescript-eslint/no-require-imports, no-console */
++// Taviri fork: the one place the desktop build learns its name and ids.
++//
++// - The display name comes from the browser extension's brand file (`nameFile` in brand.json),
++//   so a single edit renames the extension and the desktop app.
++// - The ids in brand.json (bundle id, data folder, URL scheme, browser bridge name, socket names)
++//   are what keep Taviri apart from an installed Bitwarden. They stay fixed on a rename.
++//
++// Used by webpack.base.js (main/renderer/preload bundles), taviri/electron-builder.taviri.js
++// (packaging) and taviri-desktop/build.sh (native build). Nothing here runs in the app.
++const fs = require("fs");
++const os = require("os");
++const path = require("path");
++
++const BRAND_FILE = path.join(__dirname, "brand.json");
++
++// i18n messages that name *this app* (menus, tray, settings about the app). In these, the word
++// "Bitwarden" becomes the brand name in every locale. Messages about the Bitwarden service,
++// account, company or products (Bitwarden Send, Bitwarden Authenticator, support, web app)
++// are left alone.
++const APP_NAME_MESSAGE_KEYS = [
++  "bitwarden",
++  "bitwardenBeta",
++  "aboutBitwarden",
++  "hideBitwarden",
++  "quitBitwarden",
++  "runInBackground",
++  "runInBackgroundDesc",
++  "runInBackgroundDescMac",
++  "openAtLoginDesc",
++  "closeThisBitwardenWindow",
++  "allowScreenshotsDesc",
++  "verifyNativeMessagingConnectionTitle",
++  "setYourPinCode",
++  "requireMasterPasswordOnAppRestartWarning",
++  "biometricsStatusHelptextNotEnabledLocally",
++];
++
++function expandHome(p) {
++  return p && p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p;
++}
++
++function readJson(file) {
++  return JSON.parse(fs.readFileSync(file, "utf8"));
++}
++
++function check(condition, message) {
++  if (!condition) {
++    throw new Error(`[taviri] ${BRAND_FILE}: ${message}`);
++  }
++}
++
++/** Loads and checks the brand. Throws with a readable message when something is off. */
++function loadBrand() {
++  const desktop = readJson(BRAND_FILE);
++  const nameFile = path.resolve(__dirname, desktop.nameFile);
++  const shared = readJson(nameFile);
++
++  const name = String(shared.name || "").trim();
++  const basedOn = String(shared.basedOn || "Bitwarden").trim();
++  check(name.length > 0 && !/[/:\\]/.test(name), `"name" in ${nameFile} is empty or has / : \\`);
++  check(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(desktop.appId), `"appId" must look like a.b.c`);
++  check(desktop.appId !== "com.bitwarden.desktop", `"appId" must not be Bitwarden's`);
++  // The browser bridge name may also live in the shared file (the extension connects to it);
++  // when it does, that value wins so the two cannot drift apart.
++  const nativeMessagingHost = shared.nativeMessagingHost || desktop.nativeMessagingHost;
++  check(/^[a-z][a-z0-9+.-]*$/.test(desktop.urlScheme), `"urlScheme" must be lower case`);
++  check(desktop.urlScheme !== "bitwarden", `"urlScheme" must not be "bitwarden"`);
++  check(
++    /^[a-z0-9_]+(\.[a-z0-9_]+)*$/.test(nativeMessagingHost) &&
++      nativeMessagingHost !== "com.8bit.bitwarden",
++    `"nativeMessagingHost" must be lower case dotted and not Bitwarden's`,
++  );
++  check(
++    desktop.dataFolder && desktop.dataFolder !== "Bitwarden" && !/[/:\\]/.test(desktop.dataFolder),
++    `"dataFolder" must be a plain folder name other than "Bitwarden"`,
++  );
++  check(
++    /^\.[A-Za-z0-9._-]+\.sock$/.test(desktop.sshSocketName) &&
++      desktop.sshSocketName !== ".bitwarden-ssh-agent.sock",
++    `"sshSocketName" must be a hidden .sock file name other than Bitwarden's`,
++  );
++
++  const chromeExtensionIds = desktop.chromeExtensionIds || [];
++  chromeExtensionIds.forEach((id) =>
++    check(/^[a-p]{32}$/.test(id), `chrome extension id "${id}" is not 32 letters a-p`),
++  );
++  const firefoxExtensionIds = shared.firefoxAddonId ? [shared.firefoxAddonId] : [];
++
++  const year = new Date().getFullYear();
++  return {
++    name,
++    basedOn,
++    appId: desktop.appId,
++    // Package name inside the app bundle (lower case, no spaces).
++    packageName: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
++    dataFolder: desktop.dataFolder,
++    urlScheme: desktop.urlScheme,
++    nativeMessagingHost,
++    chromeExtensionIds,
++    firefoxExtensionIds,
++    sshSocketName: desktop.sshSocketName,
++    brandKit: expandHome(desktop.brandKit),
++    description:
++      `${name} is based on ${basedOn}: an unofficial, modified build of the ${basedOn} ` +
++      `desktop app (GPL-3.0). Not affiliated with Bitwarden Inc.`,
++    copyright: `Based on ${basedOn}, copyright © 2015-${year} Bitwarden Inc. GPL-3.0.`,
++    appNameMessageKeys: APP_NAME_MESSAGE_KEYS,
++    files: { brand: BRAND_FILE, name: nameFile },
++  };
++}
++
++/** The part of the brand the app itself needs at run time (baked in by webpack). */
++function runtimeBrand(brand = loadBrand()) {
++  return {
++    name: brand.name,
++    basedOn: brand.basedOn,
++    appId: brand.appId,
++    dataFolder: brand.dataFolder,
++    urlScheme: brand.urlScheme,
++    nativeMessagingHost: brand.nativeMessagingHost,
++    chromeExtensionIds: brand.chromeExtensionIds,
++    firefoxExtensionIds: brand.firefoxExtensionIds,
++    description: brand.description,
++    copyright: brand.copyright,
++  };
++}
++
++/**
++ * Renames the app in one locale's messages.json (see APP_NAME_MESSAGE_KEYS). Returns the new
++ * file content. Leaves the file untouched when it does not parse.
++ */
++function rebrandMessages(content, brand = loadBrand()) {
++  let messages;
++  try {
++    messages = JSON.parse(content.toString());
++  } catch {
++    return content;
++  }
++  for (const key of brand.appNameMessageKeys) {
++    const entry = messages[key];
++    if (entry && typeof entry.message === "string") {
++      entry.message = entry.message.replace(/Bitwarden/g, brand.name);
++    }
++  }
++  return JSON.stringify(messages, null, 2);
++}
++
++/** Whether the desktop build should be branded (always, unless TAVIRI_BRAND=off). */
++function brandEnabled() {
++  return !["off", "0", "false", "no"].includes(
++    String(process.env.TAVIRI_BRAND || "").toLowerCase(),
++  );
++}
++
++module.exports = { loadBrand, runtimeBrand, rebrandMessages, brandEnabled };
++
++if (require.main === module) {
++  // `node taviri/brand.js [key]` prints the brand (or one value) for shell scripts.
++  const brand = loadBrand();
++  const key = process.argv[2];
++  if (key) {
++    const value = brand[key];
++    process.stdout.write(Array.isArray(value) ? value.join(" ") : String(value ?? ""));
++  } else {
++    console.log(JSON.stringify(brand, null, 2));
++  }
++}
+diff --git a/apps/desktop/taviri/brand.json b/apps/desktop/taviri/brand.json
+new file mode 100644
+index 0000000..94710be
+--- /dev/null
++++ b/apps/desktop/taviri/brand.json
+@@ -0,0 +1,11 @@
++{
++  "_comment": "Taviri desktop: ids that must differ from Bitwarden's. The display name is NOT here: it is `name` in nameFile (the browser extension's brand.json), so one edit renames both. These ids stay fixed on a rename, so logins, keychain items and browser links keep working.",
++  "nameFile": "../../browser/webpack/smartfill-brand/brand.json",
++  "appId": "io.github.perlytiara.taviri.desktop",
++  "dataFolder": "Taviri Desktop",
++  "urlScheme": "taviri",
++  "nativeMessagingHost": "io.github.perlytiara.taviri",
++  "chromeExtensionIds": ["ghkhoaoklafdifgpjbccgommimoaiane"],
++  "sshSocketName": ".taviri-ssh-agent.sock",
++  "brandKit": "../../../../brand"
++}
+diff --git a/apps/desktop/taviri/electron-builder.taviri.js b/apps/desktop/taviri/electron-builder.taviri.js
+new file mode 100644
+index 0000000..4e67ea8
+--- /dev/null
++++ b/apps/desktop/taviri/electron-builder.taviri.js
+@@ -0,0 +1,83 @@
++/* eslint-disable @typescript-eslint/no-require-imports */
++// Taviri fork: electron-builder settings for a local, unsigned macOS build.
++//
++// Starts from upstream's electron-builder.json (so upstream changes still flow in) and changes
++// only what makes the build Taviri's and buildable without Bitwarden's Apple account:
++// name, bundle id, icon, URL scheme, no app group / provisioning profile / notarization,
++// no update feed, no autofill or Safari extension, licence + notice inside the app.
++// Signing is done afterwards by taviri-desktop/build.sh (ad-hoc), not here.
++//
++//   npx electron-builder --config taviri/electron-builder.taviri.js --mac dir --arm64 -p never
++const fs = require("fs");
++const path = require("path");
++
++const { loadBrand } = require("./brand");
++
++const base = JSON.parse(
++  fs.readFileSync(path.join(__dirname, "..", "electron-builder.json"), "utf8"),
++);
++const brand = loadBrand();
++
++// NOTICE.txt (what this build is, GPL-3.0) with the brand name filled in.
++const notice = fs
++  .readFileSync(path.join(__dirname, "NOTICE.txt"), "utf8")
++  .replace(/\{\{name\}\}/g, brand.name)
++  .replace(/\{\{basedOn\}\}/g, brand.basedOn);
++fs.mkdirSync(path.join(__dirname, "generated"), { recursive: true });
++fs.writeFileSync(path.join(__dirname, "generated", "NOTICE.txt"), notice);
++
++const generatedIcon = path.join(__dirname, "generated", "icon.icns");
++if (!fs.existsSync(generatedIcon)) {
++  throw new Error("[taviri] taviri/generated/icon.icns is missing: run node taviri/make-icons.js");
++}
++
++// Info.plist keys that tie the app to Bitwarden's Apple team. Without BitwardenAppGroupIdentifier
++// the native code keeps its sockets in ~/Library/Caches/<appId>, never in Bitwarden's group
++// container.
++const { BitwardenAppGroupIdentifier, ...extendInfo } = base.mac.extendInfo;
++void BitwardenAppGroupIdentifier;
++
++const { provisioningProfile, entitlements, entitlementsInherit, ...mac } = base.mac;
++void provisioningProfile;
++void entitlements;
++void entitlementsInherit;
++
++module.exports = {
++  ...base,
++  // No `name` here (upstream sets "bitwarden"): electron-builder finds the app's production
++  // dependencies in the npm workspace by the package name "@bitwarden/desktop"; with any other
++  // name it falls back to the whole monorepo and packs ~250 MB of unused modules. The app shows
++  // productName.
++  extraMetadata: {
++    productName: brand.name,
++    description: brand.description,
++  },
++  productName: brand.name,
++  appId: brand.appId,
++  copyright: brand.copyright,
++  // No notarization (needs Bitwarden's Apple account); after-pack without signing identity.
++  afterSign: undefined,
++  afterPack: path.join(__dirname, "after-pack.taviri.js"),
++  // No update feed: Bitwarden's would offer the official build as an update.
++  publish: null,
++  generateUpdatesFilesForAllChannels: false,
++  protocols: [{ name: brand.name, schemes: [brand.urlScheme] }],
++  extraResources: [
++    ...(base.extraResources || []),
++    { from: path.join(__dirname, "..", "..", "..", "LICENSE_GPL.txt"), to: "LICENSE_GPL.txt" },
++    { from: path.join(__dirname, "generated", "NOTICE.txt"), to: "NOTICE.txt" },
++  ],
++  mac: {
++    ...mac,
++    identity: null,
++    hardenedRuntime: false,
++    icon: generatedIcon,
++    extendInfo: {
++      ...extendInfo,
++      NSHumanReadableCopyright: brand.copyright,
++    },
++    target: [{ target: "dir", arch: ["arm64"] }],
++  },
++  mas: undefined,
++  dmg: undefined,
++};
+diff --git a/apps/desktop/taviri/make-icons.js b/apps/desktop/taviri/make-icons.js
+new file mode 100644
+index 0000000..8b0920e
+--- /dev/null
++++ b/apps/desktop/taviri/make-icons.js
+@@ -0,0 +1,124 @@
++#!/usr/bin/env node
++/* eslint-disable @typescript-eslint/no-require-imports, no-console */
++// Taviri fork: makes the desktop icons from the brand kit (brand.json "brandKit"), into
++// taviri/generated/ (not committed):
++//
++//   generated/icon.icns                      app icon (Finder, Dock, About window)
++//   generated/images/icon.png                512 px app icon (window icon on Linux)
++//   generated/images/icon-template(@2x).png  menu bar icon (black, macOS tints it)
++//   generated/images/icon-highlight(@2x).png menu bar icon while its menu is open
++//
++// Kit files used: icon.svg (colour app icon) and glyph.svg (one-colour keyhole). Without the
++// kit, a placeholder is drawn: the first letter of the name, white on #047B62.
++// Tools: rsvg-convert (Homebrew librsvg) to draw the SVGs, iconutil (macOS) for the .icns.
++const { execFileSync } = require("child_process");
++const fs = require("fs");
++const os = require("os");
++const path = require("path");
++
++const { loadBrand } = require("./brand");
++
++const brand = loadBrand();
++const outDir = path.join(__dirname, "generated");
++const imagesDir = path.join(outDir, "images");
++const PLACEHOLDER_COLOUR = "#047B62";
++
++function which(tool) {
++  try {
++    return execFileSync("/usr/bin/which", [tool]).toString().trim();
++  } catch {
++    return null;
++  }
++}
++
++const rsvg = which("rsvg-convert");
++if (!rsvg) {
++  throw new Error("[taviri] rsvg-convert not found (brew install librsvg)");
++}
++
++function kitFile(name) {
++  const file = brand.brandKit ? path.join(brand.brandKit, name) : null;
++  return file && fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
++}
++
++/** Strips the XML prolog so the SVG can be nested inside another one. */
++function svgBody(svg) {
++  return svg
++    .replace(/<\?xml[^>]*\?>/, "")
++    .replace(/<!DOCTYPE[^>]*>/i, "")
++    .trim();
++}
++
++/** Adds attributes to the root <svg> element of a document. */
++function withRootAttributes(svg, attributes) {
++  return svgBody(svg).replace(/<svg\b/, `<svg ${attributes}`);
++}
++
++const letter = brand.name.charAt(0).toUpperCase();
++const kitIcon =
++  kitFile("icon.svg") ??
++  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
++  <rect width="64" height="64" rx="15" fill="${PLACEHOLDER_COLOUR}"/>
++  <text x="32" y="34" text-anchor="middle" dominant-baseline="central" fill="#fff"
++    font-family="Helvetica Neue, Arial, sans-serif" font-size="40" font-weight="700">${letter}</text>
++</svg>`;
++// The kit draws the keyhole in the middle of a 64 x 64 box (x 22-42, y 16-48); the menu bar
++// icon crops to it so it is as tall as other menu bar icons.
++const kitGlyph = kitFile("glyph.svg");
++const GLYPH_CROP = 'viewBox="15 15 34 34"';
++
++// macOS app icon grid: an 824 px tile with 100 px margins on a 1024 canvas, with a soft
++// shadow, so the Dock shows it at the same size as other apps (and macOS does not put it on
++// a grey plate).
++const appIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
++  <defs>
++    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
++      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.28"/>
++    </filter>
++  </defs>
++  <g filter="url(#shadow)">
++    ${withRootAttributes(kitIcon, 'x="100" y="100" width="824" height="824"')}
++  </g>
++</svg>`;
++
++function trayIconSvg(colour) {
++  if (kitGlyph) {
++    const glyph = svgBody(kitGlyph).replace(/viewBox="[^"]*"/, GLYPH_CROP);
++    return withRootAttributes(glyph, `fill="${colour}"`);
++  }
++  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
++  <text x="32" y="34" text-anchor="middle" dominant-baseline="central" fill="${colour}"
++    font-family="Helvetica Neue, Arial, sans-serif" font-size="58" font-weight="700">${letter}</text>
++</svg>`;
++}
++
++const work = fs.mkdtempSync(path.join(os.tmpdir(), "taviri-icons-"));
++function render(svg, size, outFile) {
++  const svgFile = path.join(work, `${path.basename(outFile)}.svg`);
++  fs.writeFileSync(svgFile, svg);
++  execFileSync(rsvg, ["-w", String(size), "-h", String(size), "-o", outFile, svgFile]);
++}
++
++fs.rmSync(outDir, { recursive: true, force: true });
++fs.mkdirSync(imagesDir, { recursive: true });
++
++// .icns through an .iconset folder.
++const iconset = path.join(work, "icon.iconset");
++fs.mkdirSync(iconset);
++for (const size of [16, 32, 128, 256, 512]) {
++  render(appIconSvg, size, path.join(iconset, `icon_${size}x${size}.png`));
++  render(appIconSvg, size * 2, path.join(iconset, `icon_${size}x${size}@2x.png`));
++}
++execFileSync("/usr/bin/iconutil", ["-c", "icns", iconset, "-o", path.join(outDir, "icon.icns")]);
++render(appIconSvg, 1024, path.join(outDir, "icon-1024.png"));
++
++render(appIconSvg, 512, path.join(imagesDir, "icon.png"));
++render(trayIconSvg("#000000"), 16, path.join(imagesDir, "icon-template.png"));
++render(trayIconSvg("#000000"), 32, path.join(imagesDir, "icon-template@2x.png"));
++render(trayIconSvg("#ffffff"), 16, path.join(imagesDir, "icon-highlight.png"));
++render(trayIconSvg("#ffffff"), 32, path.join(imagesDir, "icon-highlight@2x.png"));
++
++fs.rmSync(work, { recursive: true, force: true });
++console.log(
++  `[taviri] icons for "${brand.name}" from ${kitFile("icon.svg") ? brand.brandKit : "the placeholder"} -> ${outDir}`,
++);
+diff --git a/apps/desktop/webpack.base.js b/apps/desktop/webpack.base.js
+index 91adbe8..13a1252 100644
+--- a/apps/desktop/webpack.base.js
++++ b/apps/desktop/webpack.base.js
+@@ -10,6 +10,8 @@ const TerserPlugin = require("terser-webpack-plugin");
+ const TsconfigPathsPlugin = require("tsconfig-paths-webpack-plugin");
+ const { EnvironmentPlugin, DefinePlugin } = require("webpack");
+ const configurator = require(path.resolve(__dirname, "config/config"));
++// Taviri fork: name and ids come from taviri/brand.js. TAVIRI_BRAND=off builds stock Bitwarden.
++const taviri = require("./taviri/brand");
+ 
+ module.exports.getEnv = function getEnv() {
+   const NODE_ENV = process.env.NODE_ENV == null ? "development" : process.env.NODE_ENV;
+@@ -53,6 +55,42 @@ module.exports.buildConfig = function buildConfig(params) {
+   console.log(`Building ${params.configName} Desktop App`);
+ 
+   const envConfig = configurator.load(NODE_ENV, process.env.CHANNEL);
++
++  // Taviri fork: the brand baked into the bundles, the package.json/locales rewrites and the
++  // generated icons (taviri/generated/images, made by taviri-desktop/build.sh).
++  const taviriBrand = taviri.brandEnabled() ? taviri.loadBrand() : null;
++  const taviriDefine = {
++    TAVIRI_BRAND: JSON.stringify(taviriBrand ? taviri.runtimeBrand(taviriBrand) : null),
++  };
++  const taviriImages = path.resolve(__dirname, "taviri/generated/images");
++  const taviriCopy = (pattern, transform) =>
++    taviriBrand ? { ...pattern, transform: (content) => transform(content, taviriBrand) } : pattern;
++  const taviriPackageJson = (content, brand) => {
++    const pkg = JSON.parse(content.toString());
++    // `name` stays "@bitwarden/desktop": electron-builder finds the app's dependencies in the
++    // npm workspace by it (renamed, it packs the whole monorepo). The packaged name is set by
++    // extraMetadata in taviri/electron-builder.taviri.js; the app shows productName.
++    pkg.productName = brand.name;
++    pkg.description = brand.description;
++    pkg.desktopName = `${brand.packageName}.desktop`;
++    return JSON.stringify(pkg, null, 2);
++  };
++  const taviriTitle = {
++    apply(compiler) {
++      if (!taviriBrand) {
++        return;
++      }
++      compiler.hooks.compilation.tap("TaviriTitle", (compilation) => {
++        HtmlWebpackPlugin.getHooks(compilation).beforeEmit.tap("TaviriTitle", (data) => {
++          data.html = data.html.replace(
++            /<title>[^<]*<\/title>/,
++            `<title>${taviriBrand.name}</title>`,
++          );
++          return data;
++        });
++      });
++    },
++  };
+   configurator.log(envConfig);
+ 
+   const commonConfig = {
+@@ -140,7 +178,7 @@ module.exports.buildConfig = function buildConfig(params) {
+     plugins: [
+       new CopyWebpackPlugin({
+         patterns: [
+-          path.resolve(__dirname, "src/package.json"),
++          taviriCopy({ from: path.resolve(__dirname, "src/package.json") }, taviriPackageJson),
+           // For beta builds (CHANNEL=beta), *_beta.{png,ico} variants overwrite their
+           // default siblings so the runtime tray/window icons resolve to beta assets
+           // without any code changes. Non-beta builds filter *_beta.* out entirely.
+@@ -176,11 +214,17 @@ module.exports.buildConfig = function buildConfig(params) {
+                 },
+               ]
+             : []),
+-          { from: path.resolve(__dirname, "src/locales"), to: "locales" },
++          taviriCopy({ from: path.resolve(__dirname, "src/locales"), to: "locales" }, (c, b) =>
++            taviri.rebrandMessages(c, b),
++          ),
++          ...(taviriBrand && fs.existsSync(taviriImages)
++            ? [{ from: taviriImages, to: "images", force: true }]
++            : []),
+         ],
+       }),
+       new DefinePlugin({
+         BIT_ENVIRONMENT: JSON.stringify(NODE_ENV),
++        ...taviriDefine,
+       }),
+       new EnvironmentPlugin({
+         FLAGS: envConfig.flags,
+@@ -229,6 +273,7 @@ module.exports.buildConfig = function buildConfig(params) {
+     plugins: [
+       new DefinePlugin({
+         BIT_ENVIRONMENT: JSON.stringify(NODE_ENV),
++        ...taviriDefine,
+       }),
+     ],
+   };
+@@ -391,7 +436,9 @@ module.exports.buildConfig = function buildConfig(params) {
+       }),
+       new webpack.DefinePlugin({
+         BIT_ENVIRONMENT: JSON.stringify(NODE_ENV),
++        ...taviriDefine,
+       }),
++      taviriTitle,
+       new webpack.EnvironmentPlugin({
+         ENV: ENV,
+         FLAGS: envConfig.flags,

@@ -1,0 +1,721 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: owner <owner@localhost>
+Date: Sat, 14 Nov 2026 20:39:51 +0100
+Subject: [PATCH 02/11] Smartfill fork: the build goes by its own name, Taviri
+
+The product name is one setting, webpack/smartfill-brand/brand.json. The build
+writes it into the extension name, short name, toolbar and sidebar titles; the
+description says the build is based on Bitwarden; the in-page notice of the
+fill steps reads the name from the built manifest.
+
+- Icons in smartfill-brand/images replace upstream's at build time
+  (placeholder set until the brand kit exists).
+- The built extension carries LICENSE_GPL.txt and a NOTICE.txt saying it is an
+  unofficial, modified build of the Bitwarden browser extension.
+- Firefox add-on id: browser-extension@taviri.invalid.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ apps/browser/SMARTFILL.md                     |  30 +++++++++---------
+ .../smartfill/smartfill-recipe-runner.spec.ts |  15 +++++++++
+ .../smartfill/smartfill-recipe-runner.ts      |  17 ++++++++--
+ apps/browser/webpack.base.js                  |  25 +++++++++++++++
+ .../webpack/manifest-smartfill-overrides.json |  19 -----------
+ apps/browser/webpack/manifest.js              |  27 +++++++++++++---
+ .../webpack/smartfill-brand/NOTICE.txt        |  11 +++++++
+ .../browser/webpack/smartfill-brand/README.md |  15 +++++++++
+ .../webpack/smartfill-brand/brand.json        |   5 +++
+ .../smartfill-brand/images/icon128.png        | Bin 0 -> 1528 bytes
+ .../smartfill-brand/images/icon128_gray.png   | Bin 0 -> 1428 bytes
+ .../webpack/smartfill-brand/images/icon16.png | Bin 0 -> 303 bytes
+ .../smartfill-brand/images/icon16_gray.png    | Bin 0 -> 300 bytes
+ .../webpack/smartfill-brand/images/icon19.png | Bin 0 -> 386 bytes
+ .../smartfill-brand/images/icon19_gray.png    | Bin 0 -> 375 bytes
+ .../smartfill-brand/images/icon19_locked.png  | Bin 0 -> 682 bytes
+ .../webpack/smartfill-brand/images/icon32.png | Bin 0 -> 480 bytes
+ .../smartfill-brand/images/icon32_gray.png    | Bin 0 -> 455 bytes
+ .../webpack/smartfill-brand/images/icon38.png | Bin 0 -> 545 bytes
+ .../smartfill-brand/images/icon38_gray.png    | Bin 0 -> 539 bytes
+ .../smartfill-brand/images/icon38_locked.png  | Bin 0 -> 1169 bytes
+ .../webpack/smartfill-brand/images/icon48.png | Bin 0 -> 629 bytes
+ .../smartfill-brand/images/icon48_gray.png    | Bin 0 -> 622 bytes
+ .../webpack/smartfill-brand/images/icon96.png | Bin 0 -> 1199 bytes
+ .../smartfill-brand/images/icon96_gray.png    | Bin 0 -> 1170 bytes
+ 25 files changed, 123 insertions(+), 41 deletions(-)
+ delete mode 100644 apps/browser/webpack/manifest-smartfill-overrides.json
+ create mode 100644 apps/browser/webpack/smartfill-brand/NOTICE.txt
+ create mode 100644 apps/browser/webpack/smartfill-brand/README.md
+ create mode 100644 apps/browser/webpack/smartfill-brand/brand.json
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon128.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon128_gray.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon16.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon16_gray.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon19.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon19_gray.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon19_locked.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon32.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon32_gray.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon38.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon38_gray.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon38_locked.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon48.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon48_gray.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon96.png
+ create mode 100644 apps/browser/webpack/smartfill-brand/images/icon96_gray.png
+
+diff --git a/apps/browser/SMARTFILL.md b/apps/browser/SMARTFILL.md
+index 781985f..66d4b5e 100644
+--- a/apps/browser/SMARTFILL.md
++++ b/apps/browser/SMARTFILL.md
+@@ -1,4 +1,4 @@
+-# Smartfill fork: modification notice
++# Taviri (Smartfill fork): modification notice
+ 
+ This checkout is a **modified version** of the Bitwarden browser extension
+ (`bitwarden/clients`, `apps/browser`, tag `browser-v2026.10.2`), changed on 2026-11-14 for
+@@ -12,19 +12,19 @@ terms. Do not publish this build to an extension store.
+ All new code lives in `src/autofill/smartfill/`; upstream files are touched as little as possible
+ and every change there is marked with a `Smartfill fork:` comment.
+ 
+-| Area                                                               | Change                                                                                                                                                                                          |
+-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+-| `src/autofill/smartfill/smartfill-recipe-format.ts`                | The `grokbot:recipe` format: parsing, validation, values (`username`, `password`, `totp`, `field:<name>`, `text:<words>`).                                                                      |
+-| `src/autofill/smartfill/smartfill-field-matching.ts`               | Matching a login's extra custom fields to page controls (case- and accent-insensitive, exact before partial, ties left empty).                                                                  |
+-| `src/autofill/smartfill/smartfill-recipe-runner.ts`                | Content script: runs the steps in a frame (fill, click, wait, keypad, press), reports progress, shows a notice on errors.                                                                       |
+-| `src/autofill/smartfill/smartfill-recipe.background.ts`            | Background: decides when a recipe runs, resolves values, picks the frame, resumes after a page load only if the page is still on the login's site.                                              |
+-| `src/autofill/services/autofill.service.ts`                        | `doAutoFill` hands logins with a recipe to the recipe runner; a login's plain-named custom fields use the shared matching rules; the recipe field is never typed into a page.                   |
+-| `src/autofill/background/autofill-orchestrator.ts`                 | Recipes never run on page-load fills; frames without form fields are kept for logins with a recipe.                                                                                             |
+-| `src/autofill/content/autofill-init.ts`                            | Message handlers for the recipe runner.                                                                                                                                                         |
+-| `src/autofill/services/insert-autofill-content.service.ts`         | Drop-downs take the option whose value or text matches; `oui` / `on` tick a checkbox; a public fill-one-element method.                                                                         |
+-| `src/autofill/services/collect-autofill-content.service.ts`        | Collects the text of `aria-labelledby` targets as a label.                                                                                                                                      |
+-| `src/background/main.background.ts`                                | Creates and starts the recipe background.                                                                                                                                                       |
+-| `webpack/manifest.js`, `webpack/manifest-smartfill-overrides.json` | The build is named "Bitwarden Smartfill (unofficial fork)" and uses its own Firefox add-on id, so it cannot replace the official add-on. `SMARTFILL_BRANDING=off` builds with upstream's names. |
++| Area                                                                 | Change                                                                                                                                                                                                                                                                                                          |
++| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
++| `src/autofill/smartfill/smartfill-recipe-format.ts`                  | The `grokbot:recipe` format: parsing, validation, values (`username`, `password`, `totp`, `field:<name>`, `text:<words>`).                                                                                                                                                                                      |
++| `src/autofill/smartfill/smartfill-field-matching.ts`                 | Matching a login's extra custom fields to page controls (case- and accent-insensitive, exact before partial, ties left empty).                                                                                                                                                                                  |
++| `src/autofill/smartfill/smartfill-recipe-runner.ts`                  | Content script: runs the steps in a frame (fill, click, wait, keypad, press), reports progress, shows a notice on errors.                                                                                                                                                                                       |
++| `src/autofill/smartfill/smartfill-recipe.background.ts`              | Background: decides when a recipe runs, resolves values, picks the frame, resumes after a page load only if the page is still on the login's site.                                                                                                                                                              |
++| `src/autofill/services/autofill.service.ts`                          | `doAutoFill` hands logins with a recipe to the recipe runner; a login's plain-named custom fields use the shared matching rules; the recipe field is never typed into a page.                                                                                                                                   |
++| `src/autofill/background/autofill-orchestrator.ts`                   | Recipes never run on page-load fills; frames without form fields are kept for logins with a recipe.                                                                                                                                                                                                             |
++| `src/autofill/content/autofill-init.ts`                              | Message handlers for the recipe runner.                                                                                                                                                                                                                                                                         |
++| `src/autofill/services/insert-autofill-content.service.ts`           | Drop-downs take the option whose value or text matches; `oui` / `on` tick a checkbox; a public fill-one-element method.                                                                                                                                                                                         |
++| `src/autofill/services/collect-autofill-content.service.ts`          | Collects the text of `aria-labelledby` targets as a label.                                                                                                                                                                                                                                                      |
++| `src/background/main.background.ts`                                  | Creates and starts the recipe background.                                                                                                                                                                                                                                                                       |
++| `webpack/manifest.js`, `webpack.base.js`, `webpack/smartfill-brand/` | The build goes by its own name, set once in `smartfill-brand/brand.json` (currently "Taviri"), says in its description that it is based on Bitwarden, uses its own icons and Firefox add-on id, and carries `LICENSE_GPL.txt` and `NOTICE.txt`. `SMARTFILL_BRANDING=off` builds with upstream's name and icons. |
+ 
+ The format is shared with the Grok Bot Bitwarden connector; its specification is
+ `docs/recipes.md`.
+@@ -46,5 +46,5 @@ The format is shared with the Grok Bot Bitwarden connector; its specification is
+ 
+ ## Tests
+ 
+-`npx jest src/autofill/smartfill` from `apps/browser` (52 unit tests). End-to-end tests with a
++`npx jest src/autofill/smartfill` from `apps/browser` (53 unit tests). End-to-end tests with a
+ local fake vault live outside this checkout, in `clients/extension/test` in the Taviri repository.
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.spec.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.spec.ts
+index 21021df..93775fe 100644
+--- a/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.spec.ts
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.spec.ts
+@@ -196,6 +196,21 @@ describe("SmartfillRecipeRunner", () => {
+     expect(document.querySelector("bitwarden-smartfill-notice")).not.toBeNull();
+   });
+ 
++  it("titles its notice with the build's own name, taken from the manifest", () => {
++    const runtime = (globalThis as any).chrome.runtime;
++    const original = runtime.getManifest;
++    const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
++    runtime.getManifest = () => ({ name: "Taviri" });
++    try {
++      runner.showNotice("Stopped at step 2.");
++    } finally {
++      runtime.getManifest = original;
++    }
++    expect(warn).toHaveBeenCalledWith("[Taviri]", "Stopped at step 2.");
++    expect(document.querySelector("bitwarden-smartfill-notice")).not.toBeNull();
++    warn.mockRestore();
++  });
++
+   it("skips optional steps whose element never shows up", async () => {
+     document.body.innerHTML = `<input id="otp">`;
+     run("run-opt", [
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts
+index ddfa703..ac33d5f 100644
+--- a/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts
+@@ -18,7 +18,6 @@ import {
+ import type { SmartfillResolvedStep } from "./smartfill-recipe-format";
+ import { smartfillFoldText, smartfillIsTruthy } from "./smartfill-text";
+ 
+-const LOG_PREFIX = "[Bitwarden Smartfill]";
+ const POLL_INTERVAL_MS = 200;
+ const SETTLE_DELAY_MS = 250;
+ const SETTLE_TIMEOUT_MS = 10000;
+@@ -135,7 +134,7 @@ export class SmartfillRecipeRunner {
+     const box = globalThis.document.createElement("div");
+     box.setAttribute("role", "status");
+     const title = globalThis.document.createElement("strong");
+-    title.textContent = "Bitwarden Smartfill";
++    title.textContent = this.productName();
+     const message = globalThis.document.createElement("div");
+     message.textContent = text;
+     box.append(title, message);
+@@ -914,12 +913,24 @@ export class SmartfillRecipeRunner {
+     });
+   }
+ 
++  /**
++   * The name this build goes by, read from its manifest (the one place the name is set, see
++   * `webpack/smartfill-brand/brand.json`).
++   */
++  private productName(): string {
++    try {
++      return (globalThis as any).chrome?.runtime?.getManifest?.()?.name || "Autofill";
++    } catch {
++      return "Autofill";
++    }
++  }
++
+   private describeError(error: unknown): string {
+     return error instanceof Error ? error.message : String(error);
+   }
+ 
+   private logWarning(text: string): void {
+     // eslint-disable-next-line no-console
+-    console.warn(LOG_PREFIX, text);
++    console.warn(`[${this.productName()}]`, text);
+   }
+ }
+diff --git a/apps/browser/webpack.base.js b/apps/browser/webpack.base.js
+index aa529cf..0e6d151 100644
+--- a/apps/browser/webpack.base.js
++++ b/apps/browser/webpack.base.js
+@@ -230,6 +230,31 @@ module.exports.buildConfig = function buildConfig(params) {
+           : []),
+         { from: path.resolve(__dirname, "src/popup/images"), to: "popup/images" },
+         { from: path.resolve(__dirname, "src/autofill/content/autofill.css"), to: "content" },
++        // Smartfill fork: the fork's own icons replace upstream's files of the same name, and
++        // the build carries the GPL text and a notice saying what it is based on.
++        ...(process.env.SMARTFILL_BRANDING === "off"
++          ? []
++          : [
++              {
++                context: path.resolve(__dirname, "webpack/smartfill-brand/images"),
++                from: "*.png",
++                to: "images/[name][ext]",
++                force: true,
++                noErrorOnMissing: true,
++              },
++              { from: path.resolve(__dirname, "../../LICENSE_GPL.txt"), to: "LICENSE_GPL.txt" },
++              {
++                from: path.resolve(__dirname, "webpack/smartfill-brand/NOTICE.txt"),
++                to: "NOTICE.txt",
++                transform: (content) => {
++                  const brand = require("./webpack/smartfill-brand/brand.json");
++                  return content
++                    .toString()
++                    .replaceAll("{{name}}", brand.name)
++                    .replaceAll("{{basedOn}}", brand.basedOn || "Bitwarden");
++                },
++              },
++            ]),
+       ],
+     }),
+     new MiniCssExtractPlugin({
+diff --git a/apps/browser/webpack/manifest-smartfill-overrides.json b/apps/browser/webpack/manifest-smartfill-overrides.json
+deleted file mode 100644
+index 6befe72..0000000
+--- a/apps/browser/webpack/manifest-smartfill-overrides.json
++++ /dev/null
+@@ -1,19 +0,0 @@
+-{
+-  "name": "Bitwarden Smartfill (unofficial fork)",
+-  "short_name": "BW Smartfill",
+-  "description": "Unofficial personal fork of the Bitwarden browser extension (GPL-3.0), modified to fill multi-field logins and to run saved entry steps. Not affiliated with Bitwarden Inc.",
+-  "action": {
+-    "default_title": "Bitwarden Smartfill (unofficial fork)"
+-  },
+-  "browser_action": {
+-    "default_title": "Bitwarden Smartfill (unofficial fork)"
+-  },
+-  "browser_specific_settings": {
+-    "gecko": {
+-      "id": "bitwarden-smartfill@unofficial.fork"
+-    }
+-  },
+-  "sidebar_action": {
+-    "default_title": "Bitwarden Smartfill (unofficial fork)"
+-  }
+-}
+diff --git a/apps/browser/webpack/manifest.js b/apps/browser/webpack/manifest.js
+index e21da6e..4e53581 100644
+--- a/apps/browser/webpack/manifest.js
++++ b/apps/browser/webpack/manifest.js
+@@ -45,14 +45,32 @@ function transformChannel(manifest) {
+   return applyOverrides(manifest, require("./manifest-beta-overrides.json"));
+ }
+ 
+-// Smartfill fork: this is a modified build, so it says so in its name and description, and it
+-// uses its own Firefox add-on id so it can never replace the official add-on. Overrides live in
+-// `manifest-smartfill-overrides.json`. Set SMARTFILL_BRANDING=off to build with upstream's names.
++// Smartfill fork: this is a modified build under its own name. The name comes from one place,
++// `smartfill-brand/brand.json`; the description says what the build is based on, and Firefox gets
++// the fork's own add-on id so it can never replace the official add-on.
++// Set SMARTFILL_BRANDING=off to build with upstream's names.
+ function transformSmartfill(manifest) {
+   if (process.env.SMARTFILL_BRANDING === "off") {
+     return manifest;
+   }
+-  return applyOverrides(manifest, require("./manifest-smartfill-overrides.json"));
++  return applyOverrides(manifest, smartfillBrandOverrides(require("./smartfill-brand/brand.json")));
++}
++
++function smartfillBrandOverrides(brand) {
++  const name = String(brand.name || "").trim();
++  const basedOn = String(brand.basedOn || "Bitwarden").trim();
++  if (!name) {
++    throw new Error("smartfill-brand/brand.json needs a name");
++  }
++  return {
++    name,
++    short_name: name,
++    description: `${name} is based on ${basedOn}: an unofficial, modified build of its browser extension (GPL-3.0). Not affiliated with ${basedOn} Inc.`,
++    action: { default_title: name },
++    browser_action: { default_title: name },
++    sidebar_action: { default_title: name },
++    browser_specific_settings: { gecko: { id: brand.firefoxAddonId } },
++  };
+ }
+ 
+ function applyOverrides(target, overrides) {
+@@ -111,4 +129,5 @@ function transformPrefixes(manifest, browser) {
+ 
+ module.exports = {
+   transform,
++  smartfillBrandOverrides,
+ };
+diff --git a/apps/browser/webpack/smartfill-brand/NOTICE.txt b/apps/browser/webpack/smartfill-brand/NOTICE.txt
+new file mode 100644
+index 0000000..135eee6
+--- /dev/null
++++ b/apps/browser/webpack/smartfill-brand/NOTICE.txt
+@@ -0,0 +1,11 @@
++{{name}} is based on {{basedOn}}.
++
++This is an unofficial, modified build of the {{basedOn}} browser extension
++(https://github.com/bitwarden/clients, apps/browser), made for personal use. It is not
++affiliated with, endorsed by or supported by Bitwarden Inc. "Bitwarden" is a trademark of
++Bitwarden Inc.; it is named here only to say where this software comes from.
++
++The Bitwarden browser extension is free software under the GNU General Public License,
++version 3 (see LICENSE_GPL.txt next to this file). This modified version is covered by the
++same license. What was changed, and when, is listed in apps/browser/SMARTFILL.md of the
++source this build was made from.
+diff --git a/apps/browser/webpack/smartfill-brand/README.md b/apps/browser/webpack/smartfill-brand/README.md
+new file mode 100644
+index 0000000..fcc6a74
+--- /dev/null
++++ b/apps/browser/webpack/smartfill-brand/README.md
+@@ -0,0 +1,15 @@
++# Brand of this fork
++
++Everything that names or pictures this build lives in this folder.
++
++- **`brand.json`**: `name` is the one setting for the product name. The build writes it into the
++  extension's name, short name, toolbar title and sidebar title, and the description says it is
++  based on `basedOn`. The in-page notice of the fill steps reads the name from the built manifest.
++  `firefoxAddonId` is the Firefox add-on id; changing it makes Firefox see a different add-on.
++- **`images/`**: toolbar and extension icons. Files here replace the files of the same name in
++  `src/images` at build time: `icon16.png`, `icon32.png`, `icon48.png`, `icon96.png`,
++  `icon128.png` (each also as `_gray`, shown when logged out), `icon19.png`, `icon38.png` (also as
++  `_gray` and `_locked`). The current set is a placeholder until the brand kit exists.
++- **`NOTICE.txt`**: copied into the built extension next to `LICENSE_GPL.txt`.
++
++After a change, rebuild. `SMARTFILL_BRANDING=off` builds with upstream's name and icons.
+diff --git a/apps/browser/webpack/smartfill-brand/brand.json b/apps/browser/webpack/smartfill-brand/brand.json
+new file mode 100644
+index 0000000..4011251
+--- /dev/null
++++ b/apps/browser/webpack/smartfill-brand/brand.json
+@@ -0,0 +1,5 @@
++{
++  "name": "Taviri",
++  "basedOn": "Bitwarden",
++  "firefoxAddonId": "browser-extension@taviri.invalid"
++}
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon128.png b/apps/browser/webpack/smartfill-brand/images/icon128.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..e964b93d39503059544626d439314ee9f3e7f08e
+GIT binary patch
+literal 1528
+zcmc(fX)xOf7{>o0A`uj&s#T?}lGc_wc3X-G>L_(qw?Q0L611eNWW|*YZ9}QD?nvEL
+z<4B95;)qop<A|(l>xiQi)s$GRBNExz+3mOeyfe>x%=_t`XXg1OIXl|ONF9*^06@mh
+z*2+~hiTeeGh<cZqUmpNS)Yw@eul-!WVLM?JF^3`CEoxrwv-sAs3d0{l(iB1{E5)9)
+z3`>m~Nexz@+sy;sgy#)tPm73D+fI9Jqgm_X_ef~@VS-XPmi&+my${ya%u<_b%ni0R
+zF!AZgOI6R^q1RLLq6%j^t*E!jgY#PhF&i==a^yfc@&hsG!+(Wwkwj&^%-GZGDceN2
+zM%&#rPhZhoRLiifj5twyu*&_kx62#+*TQoXqxMbDEpsROt5ekcySsQ5#}tm<^BTC>
+zkGNi+y3%hHT)L^~TQY?ikFgM{&-3tY;2PFRu+wCAeo4}V_!U%(#5M<;_H}5L7QyvV
+zC`*ePisLUEqMO?t5q33zr==iDkSqXyF2%Y#$!HDdA8|zxQ3#(AT|-CK`DAR1OU<#0
+zL$9t8SKW?(4$_{t5$H?8B8eV)<0|79!ata4W;O$8pBR3lehNx@$Hc)2#<|c%SvoiK
+z46LBUfX^7lX%x(1E>n*((@$xV(LmTcd_QHou<$(LlwRuFx#nRcr`$J;X|p|EY7q1^
+zt=s>t@jH{rr7f6#^6u+~4yOTKHkqfC4xdFY9W2!BF*L0>K0Cyy%kK!+eZMZ>d^X0E
+zrsKan2#YoIrP12t1G@EwE)ttsA8|J<F&_dBePrparc$r+64ddWbA<0W5Z7hsEPFJ;
+zD>(zbt;lLEhes)D&>3RQn7zc&_Di4Gy{sR7LHQ<8>Vv=OOXrD=$RU{$m}O5OOk8V|
+z`=OAD3o%%2Bv})Yq!RAHP!q5^c86pE?G<g)?XlX4MLL2CV69k2JCUd(&IBpe3gKPm
+z_ClL3oP@I~2=#u>dCnP_Gv?jHc|n>4<D-vpnI+Y|w?Tns{6uSrtcyIKKdBIli%716
+zx)E{O|E)Z<ly}s&R%PZG>*Ad0{f2hogF9~5clP>jWc?Jm=KF^GXKg5Nm$HUPGM$Na
+z>=14!EB%75xkE8}2JC<Ezl#qq8Zkzm2j5cB6T?x9)cN&abb%^&(oJZO$V-P-3uh=2
+z#cK~pInn-UFCQ=5YeJ$c-rCj$W>3NigGHD3?bqkBGplLVg>vBskZ~W+0=u04M{)7T
+z>SP(=;ET!ye!d{ZDip~J-lz9P=4<tpo#H)~{S%uAx<|CpGLc*EyBI`@Nq&OHf^OSi
+zm0xhp<n+G~UtS!_U!SJ1dG&bMp9xVzJB^!e@BGqNArooGsbf{J8%LOMYE}*k{ClXR
+zPjh?i;Atm?1yW8HQ>XXkoEu|Unc5MaX1}}pC7=sL>K}TvH7v^Lt&w^E4qA)5ioiX7
+z97&RPg-1p#Iv3E$Z6|wfVZck`DrE-ibxDXw(DzKQ*MpA@s?EC}q;sCr^P0z<9g;S|
+zp-<^Cl%q`f6tGH>0j?frPz+WGlZxml4l<ObZ^(Aay1+vrc3t>xGuYJQZ|NPV7fjp@
+zc3J3Ss0YV=gycZ7QR^lxu5{Rh&4C@Bv2gf84go2Odmma0H%$;o`u_o6Z6F2AN3#0p
+zo4>v)UEz;vUa>pl#t1*%8=F0#WsAUjFlrXYM%Z-1bSm|4x<pHHrR((x4o)(>Iu{wg
+zXq44-g6gHE&_$M|K!m17<yqAAfa)@HY5mIB<Pq;SESnZT;r+533qj+zKGQv$nj+W!
+zL7cG%(4%%q^^B^N`ZrApMc5V!>G&6&q6M-KZgD`!q0m$<D>p<J!0xi6Rjq|D=`SH=
+B+Cu;U
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon128_gray.png b/apps/browser/webpack/smartfill-brand/images/icon128_gray.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..948b059bdd9bf59222f3c4de160fbfd8284e412a
+GIT binary patch
+literal 1428
+zcmeAS@N?(olHy`uVBq!ia0vp^4Is?H1|$#LC7xzrVD<ELaSW-L^X9I7hIF_L`-k_t
+zqnf$jKJr_+-AprfkLeEY4?!6xp6M!HP~5h~<Cx&V3k!qW95gm<+!7Ji=9FnwsWF2u
+z)@$0Xj{zrcBzQfXwQ^Bz%qqugd-thlavb~~uKx2~-F<!*?&u<&+WouAzrT|$a#&=k
+za4~}6Asjt3aJF81&U9^IXm&oQSFG9nD3&iw3!W)XdN=d=JyY|TjK49O&u0cz?23%7
+zZjua~vFYvIzq4;0Tvgd*{)A0-x@KEY`>DeR@AiH@K4Z~Jkp(wvN?!8pTGjaJg{<Gn
+zmFqZH+Ol6=b@kmIhf_hi4vR0&2w%E=|Ah<ln}e1wkbCj(^zW}#d)uch32S(`EbgIV
+z+hZ%=iK|VvU6PUt(sWq7bAS88XY<ll#I9c(Zm_VE>q9~L`@NP=YjX4Sn)MD{ocS#;
+zKR3j0Lck-Ynw^*bov3t{ZJ7P1`&kw9-m3h~H9agsq6s4VKHGl(u-U0}Z)3TwCufp)
+z!k(M|1#6zC_hz>>Pu+3Y@y*HyA7`BZusOYOj<3!}E`xiwpYz3+>Gm6U>3k9}usipk
+zZAxX@ya!=dDw{l5HyGDw?ER{}<K=m7@xPa~1Jihvc^S*9#Ch!f#g5Nx<+{ssL)f~u
+zqQ0SMIm`3A8-zU;Ml)20@lWv%+{CTh@JyyY&-J9<28Ocp^EcO4E)#c?{Kc(vpg@)X
+zX;ehpLFWSnlHyOJJlgiLZs4}q*|whJ${&r>pMQ!SSa*+A)G1&ZBkPB04y^)Hmi{kg
+zTwMA)goQDZEmq>t%KMK#oHcr&(Qy3#(TDR>4~R9mGXNQ?`h22&tO9w<!r6~6y>exJ
+z>|D-Vz9XBpHnaZtGFi0d$HCtkO_T4}9WQUUSLn82;W*BO6HULl^1=Rp|JYp(C3q%;
+z&eT0{{`h{L|Guk2v=&DF<nb)o_e*T~^8brY;5P-21=N)i|MKypZGhvCbjbjQtE{3e
+z_0t@k8@RQ&?(6*JUhuUzz>p>7<?l{KFU#{Ln|^P69{BZlZO(S931`w?em6e;-?4&A
+zt7U;s=z+%<GPeCUE}zN%bjG`@*-y>?)=Am$FSw$pao@>^N2lRa0mG@S8+e%88CG9>
+z^C#0xnR|gu(A}!sw{sU%xA?KnZrkFxQ$%(51*S8OTOA;*D_P}n8Y|cr#B7{-^Ua}m
+z;xBU+yxYHr-;eisr}a6VkR?o4UVoi;=?2r&rn9Hg#GdY(c%Avq-H3XgcLL8GtLKEO
+zENpLFpKbEJ-Y9;WV`NFl`nB~k&lxv{v&_wWZ??mJg6lhr*%81Lp1ru}5$_i*@t%~<
+zSGRm}%sMnL&N@&%`)P9igIM<MERhdx>Ex(+D12NL@LPVC@42p>l`Ok7+|8PoJdEC0
+z&U8MxjOY8A=|&mTZl$%aZ{l3KN$1W##b-A@i&?0gY08d&ZE|RP&~CkiiZ?gy_a4f8
+z{8Dn?wr8e&#dGBUSuclW|MtU7{;K|NrEeo`tCQ4E-Kl$Xzfbe_y}SEY%C2#GEgcgl
+zHuc@jsWxSX?z7&1`|PuqVg0Sl(sh}=tD~yDpK-<k3n7_Y#U)~g<2D-4@h^OPDR+0(
+zb-f37)~vHV*mGtJ!xY;+79kd54sf*NKO+Of|NrMEUEB{WTiHN`Dl@|zf!dF}KZA{d
+OA`G6celF{r5}E*H6p!No
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon16.png b/apps/browser/webpack/smartfill-brand/images/icon16.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..cce3581528fad677df04205f3d1d2e22ee266ca1
+GIT binary patch
+literal 303
+zcmV+~0nq-5P)<h;3K|Lk000e1NJLTq000mG000mO1^@s6AM^iV0002wNkl<Zc%1B0
+zEf2yl5WSXySdcR$1cL>S+#ey3K(GiLhGF(2_)th32D@JX0unR{K~0hcwz0C_KC-~F
+zuwi+ky?5=q_R>BEF_gx=hD(VIDWEPlENyuVIl)owSDF1>c~pU~z;&lsXoI@AP(iba
+z@m$5%coANk@B`!k<)q25XU?N!t5%0?ca$jTtmm*f?ISL<?0u8vIB<7tjAf~evtizF
+zegyeAJ__uvXQ*gHjLqo`7^M+UYy*D8zkv4&;%~boc~P1SQpG|`ePeJPGK1?vi!Gor
+zG8GBT1fd%P<gxP$00960;iA8000006Nkl<Z0{~=SSRU=Gh=>3H002ovPDHLkV1nv=
+Bd{_Vg
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon16_gray.png b/apps/browser/webpack/smartfill-brand/images/icon16_gray.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..6507ded42d603404d610e0db82a08e214587df5f
+GIT binary patch
+literal 300
+zcmV+{0n`48P)<h;3K|Lk000e1NJLTq000mG000mO1^@s6AM^iV0002tNkl<Zc%1B$
+zu?~VT5QeX{1MbFX;v?ugusS(7yBJ*@VDc%PU@#^U7kvj4r@n)(#+bNh*kynsR|+9Y
+zh~Vlsw0CX)YcIWHkYQmtT}HzO6yOWu&dtdw@d*yLz3%t~wvnmBcW@TM$S|fiDx;PY
+zBf8Q6!DrWKc!UZBg7g^X9A*~VttJcy{anHRz~Owkrao%f`yn9&_(34;x~9qb>3Q*u
+zYCX$GfcwLRm9vw!IU56|H1+eK@FV{K(Jx?aM}?HTX)QN}V$@RA7#zyOQ7cox#wZzt
+yD^1*u302zp1pom5|An4#pa1{>21!IgR09Ca=}{vs4a}GT0000<MNUMnLSTa3Pk$N!
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon19.png b/apps/browser/webpack/smartfill-brand/images/icon19.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a55e50e1c5ac87d7ee90e30ef1a2cc3ac38437b
+GIT binary patch
+literal 386
+zcmV-|0e$|7P)<h;3K|Lk000e1NJLTq000vJ000vR1^@s6a!@wR0003uNkl<Zc%1B%
+zyGjE=6o&tq9Rqek1aHw)Vxgc#8WFUy($-o;w6zjJ5JV6JYac)aD?zZ(2S}+a3L-)j
+z5o`k4Tp;8^vf0hd<U%Iwl4Lh!zG~)NK6VexVQA-gJBUhP7@g2c1zg-DTSKIoJK5PF
+zHa+9V2)akNiFH~zzkX`U>Y_(@gbO!?kV<3ii#*flCt^m7GNUy)KQ@Jx@T_a|-N!T1
+zg}f3oEpwE~VN**<94xP6H?ry~Gjdtnf4-_g?qN>F(Z3iL#zXSFG%<sK#*iuI5i{a4
+z_M1vLwejCP+6%EE>mM%s99|+k62!yT8@6t*+{$2<=`=+j8OVBvb*!*$bc^E)@Pc>&
+zw7y1k_(K;SIWw_F;DbiLCNI(VZ?d-dLO|yDb+QMK*k}97K2z|qX{!JL0RR77^-nke
+g000I_L_t&o03ao3Gdd!`;s5{u07*qoM6N<$f{YZQBme*a
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon19_gray.png b/apps/browser/webpack/smartfill-brand/images/icon19_gray.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..823d711d4be71b7546f01c8187e9613b8b29b810
+GIT binary patch
+literal 375
+zcmV--0f_#IP)<h;3K|Lk000e1NJLTq000vJ000vR1^@s6a!@wR0003jNkl<Zc%1B%
+zJxjw-6o%h(d!Y(dkVH`Y0fH0+@mJ^{aB~p1f`gljxVSk8-NePsRj`YHA-ib(SQHma
+zKPV)(l-%~*kkXW-O`DE=AdsAU&Xdc9`$~*(T`pS%KfjC#w1sjnN~PLxjl!3k+q(l2
+zbOq>rq=p>r>&x@A)5<^=i13UV(LN4YD2&nUXm-MR;xk&(`TyZX%UZ+M=0@W1d-V&R
+zQjwZR%9ecCU5YmE?G{no*-n(Xu7~R9ccjK18Q1*t`v<$fJ7(Rsk;@4v)j_?{Ftui@
+z6*q=h+3VYfd6<*qBdo3z%nzO_FBpfw99hVwM^5a}8flSy`};Q_vElyV5outL2x5dB
+zWP%*_m^0%TK?cHkBjfns7@2;DoM%D&n6J_0EJ@n~00960X4gvt00006Nkl<Z0{~*+
+VaE&sV0xbXl002ovPDHLkV1l@WtcU;r
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon19_locked.png b/apps/browser/webpack/smartfill-brand/images/icon19_locked.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..01a3986e4cfa31e1f82eae705a03a986ba77fd6e
+GIT binary patch
+literal 682
+zcmV;b0#*HqP)<h;3K|Lk000e1NJLTq000vJ000vR1^@s6a!@wR0007CNkl<Zc$}=1
+zT}V@57{~wT!&z*HmYUi&+eKxCqe2D}VMa<fc~K!L7JZWgO{}C3E0V~fvLMN#i**r(
+z7fE0k-WZZ*i=2&gnVE$oNZ3-rueqI_^`2K7&OCEU|Eu?Xp6C7XJpcEcm&a^fI2a9|
+zYANOu=b6BbC%<Qgm_V-N*e-_gmy)F!;mhv#Go`-k)|Ua;G^h@X6ai++K$a4xI$E^;
+zo@Zo_c$Rm~OeV$YvDLU%@$j>b_ZXTO4~mJB7{gPuSt%${xFrKe&D#`VuCWn3|I`*7
+zBpiOO;-=ninBom|y?Ny-s5l<O?s0Uxe$v?Y!C!M7BV(RDZr~%NJ}9WC_!f-XXw-go
+zAnWOUr80<KHi5-|6u*$-oQ)|sm6DER<7&FMefxrn)<)DgTNegPTpo)vo6=Bu`vDr8
+zTEO!hcJA1Yt3?*#uO64`Um)x;BithP>^*>_4eL;4twh&{77Vyt$j&~3{p-zWE4-Ky
+z7Ho8M3^&Uw$d~S)8uw5hat`OADE|ZohlcU!;bZ8Q2$uQBBmj*@O-GZJwL24%Bq2es
+zgU92cvF5k$aHXW!#M8e&gmr7~oP+n8m3kB(7YhS{oIYs@<Rc?h;5bh1T4JZ45qqfS
+zY&~7nY$c_qrNTWqY2)M#lbYPmFvwLZ9ud7bzb_Zn)iv~;X?J$Q(e8xfV+VSF^x<B4
+znR}Ta6i}GI+3}SC?F5)ewz}D{&Vhcc&}vbZUw~H)uTfi9Pk}K}Q4}Po)t4EDsbc<V
+zBg9K9U%z~7T8+jedn9^&Zv;Vomw+1N{2u@S0RR7J(x1=(000I_L_t&o08Lra^DE2x
+QiU0rr07*qoM6N<$f~u%M&;S4c
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon32.png b/apps/browser/webpack/smartfill-brand/images/icon32.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..f6fe959e45711dad59201ae0d7b8d18b84e9453c
+GIT binary patch
+literal 480
+zcmV<60U!Q}P)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F80004%Nkl<Zc%1B)
+zy-UMD7{;IUV-Yt6Nd=w6!Gadz;2<5PItgxW!Bt(Qehi9TMgM?I?e3zYV-=JdDT)q-
+zg5ct0!9C`@OPY`%(WHr&4*5aI<?i5l?!CM4zA3~^#&cj-o)ZWp0t_Jp0`NfusM>*Y
+z>oM*oU6xCNfPLDO5G^Vp*!!v|7cM>LM|MYEr>`n~a)_QBUD#^6Sm@~WX2a^VBhX#>
+zIXFNgv1mmiWjis$&IPBIVSpVtM8D_1A$2uP1MIYeGnS@t4Z~iwUa&MXekQNvC2SR!
+z5QN&}9gc1;|D5N`z>GMKX>klec>C=5GLS;d_=><)`x#RsqprS%i9E7t^FK!D#Xf62
+zxyDal9^eOG2I{XZ<8ks{KF09CpwZTJ9m~}d^g`@gkQhh|BnA=#{b7Km&ftutX(l8z
+zZ)X`o5X8zR!eD5^krijQ<$LhU3svn<nPm<846vdBoN#K{g$cQCwpr0Yn<e}sG$r4l
+ztFQeqz+e@NFkfiUNt1}aI%1{Snp4~`<TX3C;*>Yv00030|J3tb{{R3021!IgR09B(
+Wv3HJus{khe0000<MNUMnLSTaLLf5$f
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon32_gray.png b/apps/browser/webpack/smartfill-brand/images/icon32_gray.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..323d4ecd14d0ca0106a2119efb8b9e7a303b83c1
+GIT binary patch
+literal 455
+zcmV;&0XY7NP)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F80004eNkl<Zc%1B)
+zze>YE9LK+Rbf}}6Y=R2n><|SXL7%~`MI4L}AE1K|V8J+uw3{#Bpn@;pV8p>eg!->k
+zoLtm7XYS542^vkB^wJ?82qd|K?>E1@Bfl?2!BpY~n)~f#Fc>b}No0V6zJb88HftBZ
+zjgue3c6)_^?EuU`t`LWSG%T}r7HgnsADRqg4?~22ZCU2J9X$8N`Ioz=Pyhj4^(#UB
+zm$K|?2x|!gV#DRW=6_l+q^4g1Z?{7=-<rZe)}uBEzGfxK<oUT-EEx+(!|h!MSJyZH
+z&P!xK*EQ%`x+1-Qd?qqLQ80-r@Z9Y|n;4J0o0*;hrGfv4$8Kc2bN__g4D?=J#T90w
+zzJ{@CRouI-i{q1X3_{^cP#P!=lm<!zqhUa_&dP<Qru-LpeY@A8q~f4;giLTvgu3Eg
+zyLG9qFC@;kSzqLLG%!ROP()a(Z-DpdJTzd)$Y2trqsS@XiG_y-ULxcUk7hiO1gS_G
+xilMM@s+unV00960>dD6t00006Nkl<Z0|1iZbr?!%Q)&PJ002ovPDHLkV1jhO$!P!p
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon38.png b/apps/browser/webpack/smartfill-brand/images/icon38.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..2351324e3ea4965d9327c64d9c58b9446d0446a9
+GIT binary patch
+literal 545
+zcmV++0^a?JP)<h;3K|Lk000e1NJLTq001Tc001Tk1^@s6s6FYf0005jNkl<Zc%1B*
+zO-lkn9LAqnwK_!wAw(VQ*dc=64;Azof-YSagYX*^N~fZ}fpm!N97OkspbjP2p;LJX
+zEQmm<JY}V})6DLwyPDaW?ryL@5O-c=f6R`5b{+u^#anmAYN*>MyazyN8=3(nxxCzw
+z#CA0E(=<|Rz!woi6hs8YI9dTgoPbLC4JrEla0P8^;*cz0mkmw95@<}25zK8#*Qh0?
+zN|6(G>4&wX1ewn3<plkxx>A-)as1l7OL&SGd{40jT!C$ne$U)UT0XnF<gL<*DI48p
+z^bYDCV<o}s`FMc?D15f}@KU0zm{O-4LeWJnuuAbHb$=8bo5kYr1R5d!kVN?Cp#DUy
+zkk_yLI>gZ#Ob!g95dz)4zZ26C;7}YZX6jKc?eCzkv&+!OAJN{zvY~JN_z<VbgrV;_
+z`-+x{-DRGXkDkn1wrXA?{fP7XTl@ugkD0|4Gm9%`7FWzHu9#U|F|(**?AQ*cpt&e-
+z7d%T~hY>Ww4SSRDMS^G+O0I$8it&JhWeKnw?x2M&Lb;Dhuo=CB;b`Oyix<{~DV5Mz
+zVN;qewhaGDp1QEF6s#wu-Mj3fZ}7B*r!L$cmce5vW75O<KfzrUPK!G2<_iD-|Np9=
+j>jnS-00v1!K~w_(vm2qZJEfU}00000NkvXXu0mjfK+XHe
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon38_gray.png b/apps/browser/webpack/smartfill-brand/images/icon38_gray.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c48b65559a43d665899afdc335744de536c74fc
+GIT binary patch
+literal 539
+zcmV+$0_6RPP)<h;3K|Lk000e1NJLTq001Tc001Tk1^@s6s6FYf0005dNkl<Zc%1B*
+zO-lkn7{~uRMun15hpb~kuhKEFTLeMhp;LrVLLRD*(F<5uV9}}15Ok<Z<bs{Mc8D?w
+zUn&SUaBZJu*LF>_U3GVZ{ekQ_GcrGB#)o|#28YtoXhJ-G)+dO<uqc)~(E=Fre0H&}
+z`$%Ld|JyvS-oQ>QvBnsd%Vo@<4R9P%qKMPYX!x+^cy-5i>}ZN{o)f7Vf;I4BxwNts
+zUA;p+F-7W9Y6f5}8A)zlE622>%1&7=MFf<!zg^S@-6>die6<KE4l)%ny6CVOt%H2W
+zC?ph1A2~RHZjZO0LW#U%6sO=2R2MnGQt;%s#y^@4PGEd=1ZH^7yx=;SYB)~~<P9Ug
+zmf++Vh6V><2EV`OPhu(z4#lxzhK}<5;tD>WSJ&4o9ns>#oUZSNzs192TGv-B3TT_y
+z>)X5h(IN;x7tH1hcuHr`4DKB>iYsOmSIj7`m{D9Yqqt&5k;N!&heJ?Z<hKi|B}mB#
+z%#h6$uy=5bRzWWGly{7>5~?M@X2?M;wp8vI6*yosS_fTjw7Z{3!oF;r-&haNs$X>f
+zN~*d@kLF%I&5=>ouAmd6Y713eq$UsR;HxV=#Q!PWRpYo)r`>!300960ypYRw00006
+dNkl<Z0|4TbtS;_q4BG$z002ovPDHLkV1j0e?(6^n
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon38_locked.png b/apps/browser/webpack/smartfill-brand/images/icon38_locked.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..867e2356e4a34b48699cff08d6e0750fe306fcf2
+GIT binary patch
+literal 1169
+zcmV;C1aA9@P)<h;3K|Lk000e1NJLTq001Tc001Tk1^@s6s6FYf000C=Nkl<Zc%1B*
+zdrTBp6vn@q*#&IFihXHn5wNvFYqf#`Z7mipeP|%s)D)W<OP7kIwQbrannDy3YSXk$
+zstGX|MKl`m6(9J1#Hc}+ho~V0O*E)HRPd32ijiH$d+u<TSw$CScX9vlmt5w|ojc5z
+zbI(2J?v>%EnB0!YvA$rwXODm)nc)o_YDY(qsSY_SZ$4?5^tcD+?6gc3QW{i@hcA#&
+zAwgZ$k+*7D&yOD>VE*j4J5BNm_9!0xf@+iPo$2@gUR{I73DZO=hnP7S{mV7k?wG6>
+zC+nYTp6Yi|#Ne)PJ5hu|F~uC1fv1M_nlka-=FX$1E9uVZF&^ko8NCKA##l-)b*MMs
+z2iVQhi<C;Z$9SId6NDBm!S*tFTE`{etI@GALPbLzvi5IrKd?)S`^>K+E#^bSg${=i
+zA_l$OJ7HbO@KgL&Sf8fyn~eo{)e_>;M^jYvWx7k>!h>6Jr0%Rs-;KL>;4@(tZ(Zk2
+z&#m^mkBmFp+=Szo&chR)#TXG}GQ+GWy&Bu6sq8DkfkF6=rI@LaV-Pbm9G1WVyubNQ
+zD{Pl9U`OpKtgb3WzY3cZ`w{;AJQV}XkLK=Ip0^++YAkQri78mHcN4bMRQg`n+_*$c
+zdi^bKpE^^GttESKqO1Z9jaMKmGKPnTAz{LMm@zFG;bEaDo|%cf!zIW)w9U7|gs80C
+zzp!pYceam@jp0{Y`AJmQ)FQv25WoGDiFtFa%yY@GcRH~6@OIw`BW8X7BaW5Yxc$oy
+zb9mE}`fUam_}|iHxYpc)yoC#pGkF@`2ze=P)}KW-pR7vqln^C^5w?nx_&<L+w~LDk
+zoX^)5Z${yo_1sPw70oxRUKd6&rJp__iUg(3&fr%PNQkK={#lZbw%fPa%6%?MRn-`;
+z3!^~SBR(!XrMKh9cMEH8zlW0D`^9aN*M-sQGfG)yl`x~d9{iLN1R(=07(3=2ZlA9%
+zbM{M;wxj<nDbdA~jZIgDIYjdq``HdJL3v6LIdTL70|K~hVx>qlMb^edzBvMx;9%!?
+zrTbk6xA<9tL2B7f!klg8Wrm>SX_SbtVZyA}B+>x~J4=8EQ0*fqqZ{Rec<1kla;NX;
+zfCC;t1(~2SV}xO$Ly<h?6LEXMDNH+cQEe~??Gk7cNwts44AI)!=JvhTHf_xOU+0Og
+zoosQOb6J&i>f*_v3hff8AXDw5GD8`C$`@b5VhQeXe0@VBzy9(2&zSn@$D(@?{c+i~
+zIZDs8nBE_~N0p^$I!izwscmV3EXhcS7>P*}C-4=wYu`a!yj0KA$ir<=$UrR4&BDwX
+z)5X6?XWrUPhEEReve-_63Nk@uhB7)OPs&r25@_{NpzC5vh*~LbB)4BNc+^=q-5QrN
+zYFvgTFeu8+(4DL;Vxp?_o$iHs2o+>@Nn(wK2ZpfbV6C3Da@Gz|p!f9N0{{R3|Nk9&
+j2)_UT00v1!K~w_(E-rYXf@`=500000NkvXXu0mjfHS9Cg
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon48.png b/apps/browser/webpack/smartfill-brand/images/icon48.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..e5448051e44bb179e32b2635708c870590c9c6a4
+GIT binary patch
+literal 629
+zcmV-*0*d{KP)<h;3K|Lk000e1NJLTq001xm001xu1^@s6R|5Hm0006iNkl<Zc%1B-
+zy)QID9LK+F@5(3f<msN|DIOx?<s^hcfkT8!fkr_DiAE<Xg2Gk)02L80p;IUoHWZ>F
+zM4{kx5{W`I;`VmT>|tMVciGL%#D0>=?#|36-|x)M%kFPWAUP$FoLF9!W=E1BYCAw`
+zX!?UtQ66Zzgpxhb7uU3JYkyU!&WsHyAk*|T0X|$1C`;MY%Eo6E{0%H5WARMcIspbD
+z09535CVn%F1x@!Ub3w(&GXM8!Q4&HyG(Dc~a+~lBV%GBFiDxLuoHi$_<AOf(^e_i;
+zNhqxiH{|H_{5`|b18)OXXxth<446|TzuBe`5^q{ftR67uc}cKowJl_9k&*>Vt8EN~
+zy}|~Gr8TdugdYR7jp!(^Mi3mPuds7|QotQnyBBR>yr~VH0U7A6sxQ!hh4j18pRt|x
+zgAfQo(FP{>HqiX9+_x;%J%GQzN*#GGSsfF*YrggGo*q#wMH{$&xHpp@Q!PCn1G-^g
+z^XwQw6AfbCL<V>h8Q@K1fH#o=-b4m?6B*#m&wV4~i}7)0Gr%Gv!SJkS5H6NhyMask
+zrrVDIXkK1KxG=3btT8}iQji6kR!4*;HZ#h;yNmvX`a(~w*1caiW+4_(gW$L|IwCYI
+z@}aiYS3=NUV8K4x`t$ZY&pKd618G1F!a=m0HYcj5o_1>(ouyl<@w)<o^n}^+@pNB)
+zVOAUR2D)8%e>Dhe2f|j^0Dm=*0qHk$uK)l5|Nrb5nSlTR00v1!K~w_(PwJ!Dt3~rE
+P00000NkvXXu0mjfNhlJf
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon48_gray.png b/apps/browser/webpack/smartfill-brand/images/icon48_gray.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..b1b1487d0e00815bb9e8341633fbdc1ffc783ae1
+GIT binary patch
+literal 622
+zcmV-!0+IcRP)<h;3K|Lk000e1NJLTq001xm001xu1^@s6R|5Hm0006bNkl<Zc%1B-
+zJ4-7;7>3`8athBmHi5&DctKGSBo-=)Vi61ffL03H#mW>a_UT0}Vr4o-1v_g&7r{TE
+zh$z~5sRCY58#m)lT$9<0x-J`L2KRxG&CC~g-^}Hk&9@OKP6Ucm=_P1BlTB1mItUVJ
+z2WS*!h2%i<$2uW<bE%~EW%OsAOUo<cl#)5)G7d2u5klvurzY1v3UD=$PNysXMq{f+
+z=O`qA0-F!Hs|iEbi@ncbfQhe;#&(R$1mr@y&s`1KO*j@Y`{f~@ct*n1X2D{B&3Rd-
+zjT=lG)5y13444a6YU~<|2G~{!al6fTh?`mq6b%&ic}3v0mZnf4Nht!SmCMBC&agpJ
+z((36b;YMq7BkF2n2!hM&8=Rh9c#h|jmu~~{_BPbl1!JJOso`4&c$7bl{*2?a8x(Tj
+z+rX}NfSUjRT>A$4d+_IXm8DJB^Vr$lca491dWK(o8@Ro@FTC97?(A?Fpfrz@({lt(
+zxQIm)8W2rrKs2EN(S!y>6B-arXh1YS_l`^?{M{fo0!C#dAaq?vc`0cvjet?s0U;v@
+zfQ_wfloh7cq&NbsCIv;{wOT4Pi<#^p<o}2IXeO2Hc>iG8g;+ril4IBCsF5vXvKz8i
+zX;`suHkBOX+Z=g-RRfJT4f3Ix+ALH!qBJev*W0!JtE#$%NU|QxGV8FXGAoa=g>F0c
+zM-4oE$p>#4Ho!*>R6zN|+$#V80RR7nBJ>vk000I_L_t&o0FH^RHh~k}Q~&?~07*qo
+IM6N<$f_&={0RR91
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon96.png b/apps/browser/webpack/smartfill-brand/images/icon96.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..06c0a8803a428c6b53da49ac25122bb44f02ec8d
+GIT binary patch
+literal 1199
+zcmeAS@N?(olHy`uVBq!ia0vp^2_VeD1|%QND7Ro>U`g?GaSW-L^X9H^hD@pq+lO>D
+z=|2vEJRwJ<qN@b><Cci%Yq9FvX0Uvm)U7JE_V^>$;ExJvUzIGcdGT6mP6`hBqNGtJ
+z=;|Hqbvt;!y~j)T+)U}R=X3Y{pXqe@%$al6yWgL)pKY_>+xw>P?f;YK_J6<oMz|@Y
+zRUwqeL6SM(nuEN}kBi@U*BaE=@ibqQs9@@lKj6S6#{6KD;m4JU$$fYJ6@6o|;eK%P
+z!aLdI2FcC(E3dz~F#n)dN_*)ohW$60kJp%N&6kt=B6eWicKIxuKQHu-{5Vjz^lOB7
+z(wvR|pWD8jeSNv1Z8>-BE31Zw{`YF_`_86+^Img!mY6<^<B!bOpYy*j;=al}qvrie
+zwp;PH)Aup%Qa{$8Yf`r8=h>fH{;NeC9zTAougtMOy0~3ByeOjUY{l>HoBLztKax3c
+z;mMJ03J3f@MF*${$~^wM!t(R#)6H|4JobG){Gq(y$2uj6%~zjJ4UluFI`hB1eQwvA
+zhbQI<Z<{h#*z0}E`*{VHe^$LYGwJ5k7Zn~8y?uY5ZeQ?@r6TXeRdM|p_TT@9|Cyk4
+z()XIOdd1xPt1A}Pem>T=X!h1a&H+X3ryo`etnp5tx&DWY!fEa&?(LD!*e2+#`FP}Y
+z|J>AF5i>(Sa2X^kobRb-*tCS_)2fVRGZ|8hQ@5^ro;_*ishsKmE7cfoo@Dy!dN0SA
+z@r0Su3jI%Mvu_IfeJ@xk4`glDv|l0pqFKQ@dY`UqWc<Bpmri;wo^9~^8s8d|^mVZZ
+zx7}QSp-bt?%5MyA^3n&FO`N*@h|2$E;`3tq|DT`hGPi;w=orHkLxxmv`~sO*>m+ZP
+zeT_?BU$T|`!|9F9GpxU?*YOFhy7z3k`J<c1-RH<ve|c0X6KB!A>fEi_8+TomJMgxQ
+z`?39$eX(lE?`OYHNcybp*Z=q5f%_T%J{q$zo@YEI(O|^3podW-nSr{@A|?(o$J$AA
+zbJZAL`Y=KQ$Rm+AY{BGk{lp7T&zgN+-1X^T(c6U|EKclpOEJ^SPdfEC^5Vn0!pnc0
+z?5y)-4$jU}`#iI7XSic#sPNAalgmw~FI@0;7t@_;fBBGnc)pL{oM+G7tCe!4&d$8!
+zT=lUxqQO?d-s;RIgN7xFd>@%sxCcE@*nB4Z57&%&yH$A$7tB*JeiKj{@oS>$w-|%-
+z*Y@an?v5*7mMrS<GASnLygF}Th;LN#*3EAcpRQhbsabS(p@*g9&aO!_Ex&kK>AHI>
+z&$;rsQE`XIDxTQiDs#UxPs(#i-u9{BO5>Sh=T2;O4+^<8VPeSSD!b|;#=H7!H{T6f
+z>KVG>!p`(kaV!0!Ud4O8K0m!QPsdm-*Ku{JX7scvmqX7M*v-22JoVtEXa?_-%lbsF
+zd8B(q-8NjYR_5TM9OYAf*ESfsPs?9c@l)Di)sJl=kW^5{&cN{h|4!Z_Jz%lJ1}blu
+Z8TNMhX2oXQDg=r!c)I$ztaD0e0sy?#G`Ii&
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/browser/webpack/smartfill-brand/images/icon96_gray.png b/apps/browser/webpack/smartfill-brand/images/icon96_gray.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..d381b8c1a0b0c6958ff18303680e0bf95e32ab71
+GIT binary patch
+literal 1170
+zcmeAS@N?(olHy`uVBq!ia0vp^2_VeD1|%QND7Ro>U~%_!aSW-L^X9H^hDf>$+lS|K
+z^E6wJiLKn|6tzdx`~1C@Wg!{-Yro&|lD5ClvHPBFMR|D7BX^Pfdp0hDwjFXdE7|+I
+zeh8W<u=PH2bD4AI^`GOe$<LDS-<&(Q-mJ22Imhlr|J99mf8MwIbA>{voQEiLz%hm?
+zp%<8Y7caklnBPp|{J#|4F!pP8t#(f&KVOqLbL)VO)6w0rcR#)t;Ytgb@atix?uHvo
+z$^RO*+9z2WJuCcCzgxyHchk1)5+T+XS`Afu|CwqrU;U7OQ}ACQhxX}`AKc|4b(;fM
+zU%j`$S(d%v!-<o*jtSq}?fH^YXMeQWoPYk@|Nh0yJDD>~`qp!6J)6<^ll{xYR@>)4
+z%c{5Tdh0pw`BSb1bs0&)KYENKDwj)#7ez^}d@Hy2*)Nvo3{sDm|J%fIuHC+l@sv^i
+zgTJw|zuzx9-8`2m<L|S0*7o;Vb~Zw7v3)Ju7*AN<58EUCAX9yP=3{p0+k4fv>=l|O
+z9#imRu0+;Zz2G#4PhpeamszQAo-CPWujX1Z@$1tAB0uc*M;ljMkC|V#aatYA2~oZF
+z_?Cm$bcC0(e@Lus?3!SB`Uu0KR?~eS#4=ZyUY_wp*&)nyWrU`&FQ3D-DIi8Kt3d8D
+zo$Fs~d>{HOzNsf<&va<6PC&lO88fkl9Ob4erOa&`Z4+-EX8r1NDJR+8VSnC&@6AhY
+zeoEFnRrP7(6rI;~5=Z9Gu0I@PZ2ny;U0q*^gK5gjFAQP4HO=q$#kMYW`{$dzFTQuV
+z@%aF?c}-Ic8B%#1B*761WG>y$%ge<5YsnV|IX~M&cdPlI2s7`Tx4rD`tQS&;j=t%h
+zUh(e_>!++X@#Iu(TZZ~NIdQ#M$GF+`_gmuYf8Kn#vHab=<6mcQzrg=PYC#X9Ml!=G
+zi3TG!>N0i28m^QzfWqOUw3*}?NQf{jIy6i5MQAbKUp=6>{>#ukw?CZTo7&C&^HS{o
+znvZ%@&y-EPAt(@P>KQE{sy!z&h&Sw1Z}i*LfQ><Evx**viCmiK%Dv=_$=`2Z9}5>r
+zJ^H)2+b~vI+INp+-mlgfQ>FwO8l}yYYq+1|aEg6JwDH<VH7{NVDfuOed{;zgCWc*2
+zyd6DFM#A3kq}<GN9=q?|+qiaSC_}FJ<0bR>FA2C;`fg8~zA~2~kbl}yjwN$?Vmv3_
+z?(kl}<Z{s#lS7`i@)AwmD^6Y5>VK)yUg4G776~?g_sAt@if?Rn4|;NILT4X~{S6I$
+zy#?n__@tOs&I)1Wp1V6dZ{cUBH74O}OyYH3ot(5vEt5NHovOnoAN|#{9v+Iyy`G`S
+zJ*|~>L%<cWC+yNoj9s&=e{G%W{H-8W+VIv%F7x0?*FNvQI+@{wto^h_kf^%H%)s#f
+l{~E`{CSb|J1}ajR85WBMK9ig=-3=(h;OXk;vd$@?2>?e)45$DA
+
+literal 0
+HcmV?d00001
+

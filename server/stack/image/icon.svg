@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Colour app icon. Square, any drawing; {{BRAND_COLOR}} is filled in from brand.env. -->
+  <rect width="64" height="64" rx="15" fill="{{BRAND_COLOR}}"/>
+  <path fill="#fff" d="M27.8 35.08A10 10 0 1 1 36.2 35.08L40 48H24Z"/>
+</svg>

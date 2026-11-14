@@ -1,0 +1,42 @@
+# pi-vault: ban addresses that keep guessing. Bans are firewall drops (nftables).
+[DEFAULT]
+banaction = nftables-multiport
+banaction_allports = nftables-allports
+ignoreip = 127.0.0.1/8 ::1
+
+[sshd]
+enabled = true
+backend = systemd
+maxretry = 4
+findtime = 10m
+bantime = 1h
+
+[pi-vault]
+enabled = true
+backend = auto
+filter = pi-vault
+logpath = /var/log/pi-vault/vaultwarden.log
+port = 80,443
+maxretry = 5
+findtime = 15m
+bantime = 1h
+
+[pi-vault-admin]
+enabled = true
+backend = auto
+filter = pi-vault-admin
+logpath = /var/log/pi-vault/vaultwarden.log
+port = 80,443
+maxretry = 3
+findtime = 15m
+bantime = 4h
+
+# Repeat offenders across any jail: out for a week.
+[recidive]
+enabled = true
+backend = auto
+logpath = /var/log/fail2ban.log
+banaction = nftables-allports
+maxretry = 4
+findtime = 1d
+bantime = 1w

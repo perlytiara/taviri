@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About {{BRAND_NAME}}</title>
+<link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32x32.png">
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --ink: #17202a; --soft: #5b6673; --line: #e3e6ea; --brand: {{BRAND_COLOR}}; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14181d; --card: #1d2229; --ink: #eef1f4; --soft: #a3adb8; --line: #2c333c; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 40px 16px 64px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+  header img { width: 52px; height: 52px; border-radius: 12px; }
+  h1 { font-size: 26px; margin: 0; }
+  header p { margin: 2px 0 0; color: var(--soft); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
+  h2 { font-size: 16px; margin: 0 0 8px; }
+  p { margin: 0 0 10px; }
+  p:last-child { margin-bottom: 0; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
+  dt { color: var(--soft); }
+  dd { margin: 0; }
+  a { color: var(--brand); }
+  .back { display: inline-block; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="images/apple-touch-icon.png" alt="">
+    <div>
+      <h1>{{BRAND_NAME}}</h1>
+      <p>{{BRAND_TAGLINE}}</p>
+    </div>
+  </header>
+
+  <section>
+    <h2>This server</h2>
+    <dl>
+      <dt>Server</dt><dd>{{SERVER_VERSION}}</dd>
+      <dt>Web app</dt><dd>{{WEB_VERSION}}</dd>
+    </dl>
+    {{BRAND_SUPPORT}}
+  </section>
+
+  <section>
+    <h2>Open-source licences</h2>
+    <p>{{BRAND_NAME}} is an independent, self-hosted distribution built on open-source software:</p>
+    <p>
+      the <a href="https://github.com/dani-garcia/vaultwarden" rel="noreferrer">Vaultwarden</a> server
+      (AGPL-3.0, © its contributors) and the
+      <a href="https://github.com/bitwarden/clients" rel="noreferrer">Bitwarden web client</a>
+      (GPL-3.0, © Bitwarden Inc.), as packaged in
+      <a href="https://github.com/dani-garcia/bw_web_builds" rel="noreferrer">bw_web_builds</a>.
+      Both were modified here: the name, logos, icons and email texts were replaced.
+      The source of this build, including the scripts that make those changes: {{BRAND_SOURCE}}.
+    </p>
+    <p>
+      {{BRAND_NAME}} is not affiliated with, sponsored or endorsed by Bitwarden Inc. or the Vaultwarden
+      project. Their names are used here only to credit the software and its licences.
+      This software comes with no warranty.
+    </p>
+  </section>
+
+  <a class="back" href="./">← Back to the vault</a>
+</main>
+</body>
+</html>

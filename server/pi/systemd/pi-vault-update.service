@@ -1,0 +1,8 @@
+[Unit]
+Description=pi-vault server update
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vaultctl update

@@ -1,0 +1,6 @@
+/* Extra styling for the web vault, on top of the stock one. */
+
+/* The icon font's "shield" is the upstream logo mark; show the padlock instead. */
+.bwi-shield:before {
+  content: "\f136" !important;
+}

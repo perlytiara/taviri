@@ -1,0 +1,9 @@
+{
+  "name": "Taviri",
+  "tagline": "Private password vault",
+  "colour": "#047B62",
+  "ink": "#17202A",
+  "wordmark_font": "Inter, weight 650, converted to outlines",
+  "status": "placeholder artwork until the owner approves or replaces it",
+  "source": "server/stack/image (brand.env, icon.svg, mark.svg, glyph.svg)"
+}

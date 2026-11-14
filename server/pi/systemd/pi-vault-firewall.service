@@ -1,0 +1,14 @@
+[Unit]
+Description=pi-vault firewall (home network and tailnet only)
+Wants=network-pre.target
+Before=network-pre.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/pi-vault/firewall.nft
+ExecStop=-/usr/sbin/nft delete table inet pivault
+
+[Install]
+WantedBy=multi-user.target

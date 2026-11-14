@@ -1,0 +1,15 @@
+// pi-vault: install security fixes by themselves, including Docker, Tailscale and
+// Raspberry Pi packages, and restart at night when a fix needs it.
+Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename},label=Debian";
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        "origin=Raspbian,codename=${distro_codename}";
+        "origin=Raspberry Pi Foundation,codename=${distro_codename}";
+        "origin=Docker,codename=${distro_codename}";
+        "origin=Tailscale,codename=${distro_codename}";
+};
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";

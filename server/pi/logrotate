@@ -1,0 +1,10 @@
+/var/log/pi-vault/vaultwarden.log {
+    su pivault pivault
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

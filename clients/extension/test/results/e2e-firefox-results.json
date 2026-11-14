@@ -1,0 +1,225 @@
+{
+  "date": "2026-11-14T23:15:51.860Z",
+  "extension": {
+    "name": "Taviri",
+    "version": "2026.10.2",
+    "manifest_version": 2
+  },
+  "browser": "Firefox/162.0 (headless temporary copy of Firefox Nightly, separate profile), via WebDriver BiDi",
+  "vault": "local Vaultwarden, fake account and fake logins",
+  "passed": 9,
+  "total": 9,
+  "results": [
+    {
+      "id": "plain",
+      "title": "Ordinary username + password form still fills",
+      "pass": true,
+      "checks": [
+        {
+          "name": "fill accepted",
+          "pass": true,
+          "detail": {
+            "login": "Plain (test)",
+            "outcome": "filled"
+          }
+        },
+        {
+          "name": "username",
+          "pass": true,
+          "detail": "plain-user"
+        },
+        {
+          "name": "password",
+          "pass": true
+        }
+      ],
+      "ms": 4487
+    },
+    {
+      "id": "multifield",
+      "title": "Multi-field login: custom fields matched to labels (accents, select, checkbox, aria-labelledby, tie)",
+      "pass": true,
+      "checks": [
+        {
+          "name": "\"Numero allocataire\" → label \"Numéro allocataire *\"",
+          "pass": true,
+          "detail": "1234567"
+        },
+        {
+          "name": "password → Code confidentiel",
+          "pass": true
+        },
+        {
+          "name": "\"Date de naissance\" (hidden field) → placeholder",
+          "pass": true,
+          "detail": "01/02/1990"
+        },
+        {
+          "name": "\"Pays\" = france → option France",
+          "pass": true,
+          "detail": "FR"
+        },
+        {
+          "name": "\"Se souvenir de moi\" (boolean) → checkbox",
+          "pass": true
+        },
+        {
+          "name": "\"Identifiant client\" → aria-labelledby",
+          "pass": true,
+          "detail": "CL-998877"
+        },
+        {
+          "name": "\"Code\" matches two boxes equally → neither filled",
+          "pass": true
+        }
+      ],
+      "ms": 4419
+    },
+    {
+      "id": "inline-menu",
+      "title": "Multi-field login through the menu in the field (real mouse clicks)",
+      "pass": true,
+      "checks": [
+        {
+          "name": "menu opened",
+          "pass": true
+        },
+        {
+          "name": "extra field filled",
+          "pass": true,
+          "detail": "1234567"
+        },
+        {
+          "name": "password filled",
+          "pass": true
+        }
+      ],
+      "ms": 5004
+    },
+    {
+      "id": "two-step",
+      "title": "Recipe: fiscal number, Continue, wait for the password box, password, Connexion (one page)",
+      "pass": true,
+      "checks": [
+        {
+          "name": "fiscal number typed (field:Numéro fiscal)",
+          "pass": true,
+          "detail": "1234567890123"
+        },
+        {
+          "name": "password typed after the box appeared",
+          "pass": true
+        }
+      ],
+      "ms": 3960
+    },
+    {
+      "id": "bank",
+      "title": "Recipe across page loads: identifier, shuffled image keypad (reshuffles after each press), TOTP",
+      "pass": true,
+      "checks": [
+        {
+          "name": "identifier typed on page 1",
+          "pass": true
+        },
+        {
+          "name": "code entered on the shuffled keypad (page 2)",
+          "pass": true,
+          "detail": "73519"
+        },
+        {
+          "name": "TOTP code accepted (page 3)",
+          "pass": true,
+          "detail": "wrong code"
+        }
+      ],
+      "ms": 4767
+    },
+    {
+      "id": "game",
+      "title": "Recipe on a game-like screen: shadow DOM, a field that only accepts typed keys, a pointer-only button",
+      "pass": true,
+      "checks": [
+        {
+          "name": "pilot name typed inside the shadow root",
+          "pass": true,
+          "detail": "AcePilot"
+        },
+        {
+          "name": "passcode typed key by key",
+          "pass": true
+        }
+      ],
+      "ms": 3147
+    },
+    {
+      "id": "leaves-site",
+      "title": "Safety: a recipe whose click leads to another site types nothing there",
+      "pass": true,
+      "checks": [
+        {
+          "name": "the click led to the other site",
+          "pass": true
+        },
+        {
+          "name": "nothing typed on the other site",
+          "pass": true
+        },
+        {
+          "name": "the other site received nothing",
+          "pass": true
+        }
+      ],
+      "ms": 10106
+    },
+    {
+      "id": "broken-recipe",
+      "title": "A recipe that is not valid JSON: a notice, nothing typed",
+      "pass": true,
+      "checks": [
+        {
+          "name": "notice shown",
+          "pass": true
+        },
+        {
+          "name": "nothing typed",
+          "pass": true
+        }
+      ],
+      "ms": 2899
+    },
+    {
+      "id": "item-icons",
+      "title": "Taviri item icons: a taviri:icon field picks a pack icon, other items get their type's icon",
+      "pass": true,
+      "checks": [
+        {
+          "name": "Home Wi-Fi (test): field taviri:icon = wifi",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "Relay dev (test): field taviri:icon = relay (the app family's Relay icon)",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "Server notes (test): a note without the field: the note icon",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "App only (test): an app-only login: the phone icon",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        },
+        {
+          "name": "Test card (test): a card: the card icon",
+          "pass": true,
+          "detail": "data:image/png;base64,iVBORw0KGgoAAAANSU"
+        }
+      ],
+      "ms": 1160
+    }
+  ]
+}

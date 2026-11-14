@@ -1,0 +1,10 @@
+[Unit]
+Description=pi-vault weekly server update
+
+[Timer]
+OnCalendar=Sun *-*-* 03:50:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

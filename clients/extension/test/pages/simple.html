@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plain sign-in (test)</title>
+<link rel="icon" href="data:,">
+<style>body{font:15px system-ui;margin:40px;max-width:560px}label{display:block;margin-top:12px}input,button{font:inherit;padding:6px;margin-top:4px}</style>
+</head>
+<body>
+<h1>Sign in (test)</h1>
+<form id="login" method="post" action="/submit">
+  <label for="user">Username</label>
+  <input id="user" name="username" autocomplete="username">
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password">
+  <button type="submit" id="submit">Sign in</button>
+</form>
+</body>
+</html>

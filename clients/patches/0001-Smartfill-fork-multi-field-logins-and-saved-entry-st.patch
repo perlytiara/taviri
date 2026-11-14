@@ -1,0 +1,4014 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: owner <owner@localhost>
+Date: Sat, 14 Nov 2026 20:23:25 +0100
+Subject: [PATCH 01/11] Smartfill fork: multi-field logins and saved entry
+ steps (grokbot:recipe)
+
+Personal, unofficial modification of the browser extension (base: browser-v2026.10.2).
+
+- A login's plain-named custom fields are typed into the best-matching control
+  (case- and accent-insensitive, exact before partial, ties left empty, never a
+  password box). Bitwarden's rule syntax and linked fields behave as before.
+- A login with a grokbot:recipe custom field runs its saved entry steps instead
+  of the heuristic fill: fill, click, wait, keypad, press; values username,
+  password, totp, field:<name>, text:<words>. Same format as the Grok Bot
+  connector.
+- Steps continue after a page load only if the page still matches the login's
+  saved addresses, the vault is unlocked and the tab is in front. Recipes never
+  run on page-load fills, nor for shared (organization) logins.
+- The build names itself 'Bitwarden Smartfill (unofficial fork)' and uses its
+  own Firefox add-on id.
+
+See apps/browser/SMARTFILL.md.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ apps/browser/SMARTFILL.md                     |  50 +
+ .../background/autofill-orchestrator.ts       |  22 +-
+ .../src/autofill/content/autofill-init.ts     |  33 +
+ .../services/abstractions/autofill.service.ts |   5 +
+ .../services/autofill.service.spec.ts         |   6 +-
+ .../src/autofill/services/autofill.service.ts | 173 +++-
+ .../collect-autofill-content.service.ts       |  31 +
+ .../insert-autofill-content.service.ts        |  35 +-
+ .../smartfill-autofill-service.spec.ts        | 275 ++++++
+ .../smartfill-field-matching.spec.ts          | 103 ++
+ .../smartfill/smartfill-field-matching.ts     | 143 +++
+ .../autofill/smartfill/smartfill-messages.ts  |  69 ++
+ .../smartfill/smartfill-recipe-format.spec.ts | 183 ++++
+ .../smartfill/smartfill-recipe-format.ts      | 320 ++++++
+ .../smartfill/smartfill-recipe-runner.spec.ts | 324 ++++++
+ .../smartfill/smartfill-recipe-runner.ts      | 925 ++++++++++++++++++
+ .../smartfill-recipe.background.spec.ts       | 305 ++++++
+ .../smartfill/smartfill-recipe.background.ts  | 505 ++++++++++
+ .../src/autofill/smartfill/smartfill-text.ts  |  34 +
+ .../browser/src/background/main.background.ts |  12 +
+ .../webpack/manifest-smartfill-overrides.json |  19 +
+ apps/browser/webpack/manifest.js              |  11 +
+ 22 files changed, 3566 insertions(+), 17 deletions(-)
+ create mode 100644 apps/browser/SMARTFILL.md
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-autofill-service.spec.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-field-matching.spec.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-field-matching.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-messages.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-recipe-runner.spec.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-recipe.background.spec.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-recipe.background.ts
+ create mode 100644 apps/browser/src/autofill/smartfill/smartfill-text.ts
+ create mode 100644 apps/browser/webpack/manifest-smartfill-overrides.json
+
+diff --git a/apps/browser/SMARTFILL.md b/apps/browser/SMARTFILL.md
+new file mode 100644
+index 0000000..781985f
+--- /dev/null
++++ b/apps/browser/SMARTFILL.md
+@@ -0,0 +1,50 @@
++# Smartfill fork: modification notice
++
++This checkout is a **modified version** of the Bitwarden browser extension
++(`bitwarden/clients`, `apps/browser`, tag `browser-v2026.10.2`), changed on 2026-11-14 for
++personal use. It is not an official Bitwarden build and is not affiliated with or endorsed by
++Bitwarden Inc. The original license notices (`LICENSE.txt`, `LICENSE_GPL.txt`,
++`LICENSE_BITWARDEN.txt`) are unchanged; the changes below are released under the same GPL-3.0
++terms. Do not publish this build to an extension store.
++
++## What was changed
++
++All new code lives in `src/autofill/smartfill/`; upstream files are touched as little as possible
++and every change there is marked with a `Smartfill fork:` comment.
++
++| Area                                                               | Change                                                                                                                                                                                          |
++| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
++| `src/autofill/smartfill/smartfill-recipe-format.ts`                | The `grokbot:recipe` format: parsing, validation, values (`username`, `password`, `totp`, `field:<name>`, `text:<words>`).                                                                      |
++| `src/autofill/smartfill/smartfill-field-matching.ts`               | Matching a login's extra custom fields to page controls (case- and accent-insensitive, exact before partial, ties left empty).                                                                  |
++| `src/autofill/smartfill/smartfill-recipe-runner.ts`                | Content script: runs the steps in a frame (fill, click, wait, keypad, press), reports progress, shows a notice on errors.                                                                       |
++| `src/autofill/smartfill/smartfill-recipe.background.ts`            | Background: decides when a recipe runs, resolves values, picks the frame, resumes after a page load only if the page is still on the login's site.                                              |
++| `src/autofill/services/autofill.service.ts`                        | `doAutoFill` hands logins with a recipe to the recipe runner; a login's plain-named custom fields use the shared matching rules; the recipe field is never typed into a page.                   |
++| `src/autofill/background/autofill-orchestrator.ts`                 | Recipes never run on page-load fills; frames without form fields are kept for logins with a recipe.                                                                                             |
++| `src/autofill/content/autofill-init.ts`                            | Message handlers for the recipe runner.                                                                                                                                                         |
++| `src/autofill/services/insert-autofill-content.service.ts`         | Drop-downs take the option whose value or text matches; `oui` / `on` tick a checkbox; a public fill-one-element method.                                                                         |
++| `src/autofill/services/collect-autofill-content.service.ts`        | Collects the text of `aria-labelledby` targets as a label.                                                                                                                                      |
++| `src/background/main.background.ts`                                | Creates and starts the recipe background.                                                                                                                                                       |
++| `webpack/manifest.js`, `webpack/manifest-smartfill-overrides.json` | The build is named "Bitwarden Smartfill (unofficial fork)" and uses its own Firefox add-on id, so it cannot replace the official add-on. `SMARTFILL_BRANDING=off` builds with upstream's names. |
++
++The format is shared with the Grok Bot Bitwarden connector; its specification is
++`docs/recipes.md`.
++
++## Behaviour that differs from upstream
++
++- A login's custom field with a plain name ("Numéro fiscal") is typed into **one** control, the
++  best label match, and never into a password box; upstream typed it into every control whose id,
++  name, label or neighbouring text equalled the name. Names in Bitwarden's rule syntax (`id=…`,
++  `name=…`, `label=…`, `placeholder=…`, `regex=…`, `csv=…`) and linked fields behave as upstream.
++  Cards and identities are untouched.
++- A login with a `grokbot:recipe` field is filled by its recipe on its own site, and is not
++  filled at all by "autofill on page load".
++- The recipe of a shared (organization) login is ignored and the login is filled the regular way:
++  anyone who can edit a shared login could otherwise make the browser click things on that site
++  (`SMARTFILL_RUN_ORGANIZATION_RECIPES` in `smartfill-recipe.background.ts`).
++- TOTP in a recipe follows the same entitlement as upstream's TOTP fill (Premium, or an
++  organization that uses TOTP).
++
++## Tests
++
++`npx jest src/autofill/smartfill` from `apps/browser` (52 unit tests). End-to-end tests with a
++local fake vault live outside this checkout, in `clients/extension/test` in the Taviri repository.
+diff --git a/apps/browser/src/autofill/background/autofill-orchestrator.ts b/apps/browser/src/autofill/background/autofill-orchestrator.ts
+index 0df4705..9703cdb 100644
+--- a/apps/browser/src/autofill/background/autofill-orchestrator.ts
++++ b/apps/browser/src/autofill/background/autofill-orchestrator.ts
+@@ -36,6 +36,7 @@ import {
+   AutofillService,
+   PageDetail,
+ } from "../services/abstractions/autofill.service";
++import { smartfillHasRecipe } from "../smartfill/smartfill-recipe-format";
+ import { AutofillTriageResponse } from "../types/autofill-triage";
+ import {
+   AUTOFILL_ABSENT,
+@@ -350,10 +351,16 @@ export class DefaultAutofillOrchestrator implements AutofillOrchestrator {
+         return;
+       }
+ 
+-      const [pageDetails, plan] = await Promise.all([
+-        this.read(target, request.frameId),
++      const [collectedPageDetails, plan] = await Promise.all([
++        this.read(target, request.frameId, true),
+         this.selectFill(request, target),
+       ]);
++      // Smartfill fork: a login with saved entry steps may act on frames without form fields
++      // (an on-screen keypad, a button to press first), so keep those frames for it.
++      const pageDetails =
++        plan != null && smartfillHasRecipe(plan.cipher)
++          ? collectedPageDetails
++          : collectedPageDetails.filter(({ details }) => !!details?.fields?.length);
+       if (
+         pageDetails.length == 0 ||
+         plan == null ||
+@@ -403,11 +410,18 @@ export class DefaultAutofillOrchestrator implements AutofillOrchestrator {
+    * independently and accumulate into one settled result. A frame-scoped collect gets exactly one
+    * response, already complete, so it needs no settle.
+    */
+-  private async read(tab: chrome.tabs.Tab, frameId?: number): Promise<PageDetail[]> {
++  private async read(
++    tab: chrome.tabs.Tab,
++    frameId?: number,
++    keepFramesWithoutFields = false,
++  ): Promise<PageDetail[]> {
+     const pageDetails$ = this.autofillService.collectPageDetailsFromTab$(tab, frameId);
+     const pageDetails = await firstValueFrom(
+       frameId == null ? pageDetails$.pipe(debounceTime(COLLECT_SETTLE_MS), take(1)) : pageDetails$,
+     );
++    if (keepFramesWithoutFields) {
++      return pageDetails.filter(({ details }) => !!details);
++    }
+     const details = pageDetails.filter(({ details }) => !!details?.fields?.length);
+ 
+     return details;
+@@ -480,6 +494,8 @@ export class DefaultAutofillOrchestrator implements AutofillOrchestrator {
+         fillNewPassword: fromCommand,
+         allowUntrustedIframe: fromCommand,
+         allowTotpAutofill: fromCommand,
++        // Smartfill fork: saved entry steps click and submit, so never on page load.
++        allowRecipe: fromCommand,
+       },
+     };
+   }
+diff --git a/apps/browser/src/autofill/content/autofill-init.ts b/apps/browser/src/autofill/content/autofill-init.ts
+index f2c132c..c7b2021 100644
+--- a/apps/browser/src/autofill/content/autofill-init.ts
++++ b/apps/browser/src/autofill/content/autofill-init.ts
+@@ -8,6 +8,14 @@ import { DomElementVisibilityService } from "../services/abstractions/dom-elemen
+ import { DomQueryService } from "../services/abstractions/dom-query.service";
+ import { CollectAutofillContentService } from "../services/collect-autofill-content.service";
+ import InsertAutofillContentService from "../services/insert-autofill-content.service";
++import {
++  SmartfillCancelMessage,
++  SmartfillCommand,
++  SmartfillNoticeMessage,
++  SmartfillProbeMessage,
++  SmartfillRunMessage,
++} from "../smartfill/smartfill-messages";
++import { SmartfillRecipeRunner } from "../smartfill/smartfill-recipe-runner";
+ import { AutofillTriageResponse } from "../types/autofill-triage";
+ import { sendExtensionMessage } from "../utils";
+ import { EventSecurity } from "../utils/event-security";
+@@ -22,6 +30,8 @@ class AutofillInit implements AutofillInitInterface {
+   private readonly sendExtensionMessage = sendExtensionMessage;
+   private readonly collectAutofillContentService: CollectAutofillContentService;
+   private readonly insertAutofillContentService: InsertAutofillContentService;
++  /** Smartfill fork: runs saved entry steps ("grokbot:recipe") in this frame. */
++  private readonly smartfillRecipeRunner: SmartfillRecipeRunner;
+   private collectPageDetailsOnLoadTimeout: number | NodeJS.Timeout | undefined;
+   private lastContextMenuClickedElement: HTMLElement | null = null;
+   private isMonitoring = false;
+@@ -38,6 +48,23 @@ class AutofillInit implements AutofillInitInterface {
+     clearTargetingRulesCache: () => this.handleClearTargetingRulesCache(),
+     startAutofillMonitors: () => this.startMonitoring(),
+     stopAutofillMonitors: () => this.stopMonitoring(),
++    [SmartfillCommand.run]: ({ message }: { message: unknown }) =>
++      this.isMonitoring
++        ? this.smartfillRecipeRunner.start(message as SmartfillRunMessage)
++        : undefined,
++    [SmartfillCommand.probe]: ({ message }: { message: unknown }) =>
++      this.isMonitoring
++        ? { found: this.smartfillRecipeRunner.probe((message as SmartfillProbeMessage).selector) }
++        : undefined,
++    [SmartfillCommand.cancel]: ({ message }: { message: unknown }): undefined => {
++      this.smartfillRecipeRunner.cancel((message as SmartfillCancelMessage).runId);
++      return undefined;
++    },
++    [SmartfillCommand.notice]: ({ message }: { message: unknown }): undefined => {
++      const notice = message as SmartfillNoticeMessage;
++      this.smartfillRecipeRunner.showNotice(notice.text, notice.expectedUrl);
++      return undefined;
++    },
+   };
+ 
+   /**
+@@ -66,6 +93,11 @@ class AutofillInit implements AutofillInitInterface {
+       domElementVisibilityService,
+       this.collectAutofillContentService,
+     );
++    this.smartfillRecipeRunner = new SmartfillRecipeRunner(
++      (element, value, showAnimations) =>
++        this.insertAutofillContentService.insertValueIntoElement(element, value, showAnimations),
++      (command, options) => this.sendExtensionMessage(command, options),
++    );
+   }
+ 
+   /**
+@@ -318,6 +350,7 @@ class AutofillInit implements AutofillInitInterface {
+    * listeners, timeouts, and object instances to prevent memory leaks.
+    */
+   destroy() {
++    this.smartfillRecipeRunner.cancel();
+     this.stopMonitoring();
+     globalThis.document.removeEventListener("contextmenu", this.handleContextMenuClick);
+     chrome.runtime.onMessage.removeListener(this.handleExtensionMessage);
+diff --git a/apps/browser/src/autofill/services/abstractions/autofill.service.ts b/apps/browser/src/autofill/services/abstractions/autofill.service.ts
+index e8bf1da..eb94df7 100644
+--- a/apps/browser/src/autofill/services/abstractions/autofill.service.ts
++++ b/apps/browser/src/autofill/services/abstractions/autofill.service.ts
+@@ -32,6 +32,11 @@ export interface AutoFillOptions {
+   focusedFieldForm?: string;
+   focusedFieldOpid?: string;
+   inlineMenuFillType?: InlineMenuFillType;
++  /**
++   * Smartfill fork: whether a login's saved entry steps ("grokbot:recipe") may run. Page-load
++   * fills set `false`; every fill the user asks for leaves it unset (allowed).
++   */
++  allowRecipe?: boolean;
+ }
+ 
+ interface FormDataBase {
+diff --git a/apps/browser/src/autofill/services/autofill.service.spec.ts b/apps/browser/src/autofill/services/autofill.service.spec.ts
+index 0c4a6ee..d3b4c71 100644
+--- a/apps/browser/src/autofill/services/autofill.service.spec.ts
++++ b/apps/browser/src/autofill/services/autofill.service.spec.ts
+@@ -1450,6 +1450,8 @@ describe("AutofillService", () => {
+         generateFillScriptOptions,
+       );
+ 
++      // Smartfill fork: on a login, a custom field named like a control fills that control, but
++      // never a password box (that one takes the login's own password).
+       expect(autofillService["generateLoginFillScript"]).toHaveBeenCalledWith(
+         {
+           properties: {},
+@@ -1458,14 +1460,10 @@ describe("AutofillService", () => {
+             ["click_on_opid", "username-field"],
+             ["focus_by_opid", "username-field"],
+             ["fill_by_opid", "username-field", "default-value"],
+-            ["click_on_opid", "password-field"],
+-            ["focus_by_opid", "password-field"],
+-            ["fill_by_opid", "password-field", "default-value"],
+           ],
+         },
+         pageDetail,
+         {
+-          "password-field": defaultPasswordField,
+           "username-field": defaultUsernameField,
+         },
+         generateFillScriptOptions,
+diff --git a/apps/browser/src/autofill/services/autofill.service.ts b/apps/browser/src/autofill/services/autofill.service.ts
+index 41f7da9..f46999d 100644
+--- a/apps/browser/src/autofill/services/autofill.service.ts
++++ b/apps/browser/src/autofill/services/autofill.service.ts
+@@ -57,6 +57,13 @@ import { InlineMenuFillTypes, type InlineMenuFillType } from "../enums/autofill-
+ import AutofillField from "../models/autofill-field";
+ import AutofillPageDetails from "../models/autofill-page-details";
+ import AutofillScript from "../models/autofill-script";
++import {
++  smartfillFieldIsCandidate,
++  smartfillMatchFields,
++} from "../smartfill/smartfill-field-matching";
++import { isSmartfillRecipeFieldName } from "../smartfill/smartfill-recipe-format";
++import { SmartfillRecipeBackground } from "../smartfill/smartfill-recipe.background";
++import { smartfillIsTruthy } from "../smartfill/smartfill-text";
+ import { AUTOFILL_DENIED, FillOccurred, FillResult } from "../types/fill-result";
+ import {
+   fieldContainsKeyword,
+@@ -119,6 +126,8 @@ export default class AutofillService implements AutofillServiceInterface {
+     private messageListener: MessageListener,
+     private animationControlService: AnimationControlService,
+     private autofillLifecycleService: AutofillLifecycleService,
++    /** Smartfill fork: runs saved entry steps ("grokbot:recipe"). Optional so tests can omit it. */
++    private smartfillRecipeBackground?: SmartfillRecipeBackground,
+   ) {
+     this.enableInlineMenuAnimation$ = this.animationControlService.enableInlineMenuAnimation$;
+     this.enableNotificationAnimation$ = this.animationControlService.enableNotificationAnimation$;
+@@ -497,6 +506,34 @@ export default class AutofillService implements AutofillServiceInterface {
+     // check for premium subscription entitlement or organizational policy
+     const canUseTotp = canAccessPremium || options.cipher.organizationUseTotp;
+ 
++    // Smartfill fork: a login with saved entry steps runs them instead of the heuristic fill.
++    // Automated login (enterprise auto-submit) keeps Bitwarden's own flow.
++    if (this.smartfillRecipeBackground && !options.autoSubmitLogin) {
++      const recipeOutcome = await this.smartfillRecipeBackground.tryRun({
++        tab,
++        cipher: options.cipher,
++        pageDetails: options.pageDetails,
++        canAccessTotp: canUseTotp,
++        defaultUriMatch,
++        allowRecipe: options.allowRecipe !== false,
++        showAnimations:
++          (await firstValueFrom(this.animationControlService.enableAutofillAnimation$)) ?? true,
++        requiresInsecureConfirmation: (frameUrl: string) =>
++          this.requiresInsecurePageConfirmation(frameUrl, {
++            cipher: options.cipher,
++            defaultUriMatch,
++          } as GenerateFillScriptOptions),
++      });
++      if (recipeOutcome !== undefined) {
++        return await this.concludeSmartfillRecipe(
++          recipeOutcome,
++          options,
++          activeAccount?.id,
++          canUseTotp,
++        );
++      }
++    }
++
+     const outcomes = await Promise.all(
+       options.pageDetails.map(async (pd): Promise<AutofillOutcome> => {
+         // security: deny fills across tabs or when a navigation occurred
+@@ -594,6 +631,36 @@ export default class AutofillService implements AutofillServiceInterface {
+     return Object.freeze({ outcome });
+   }
+ 
++  /**
++   * Smartfill fork: reports the outcome of starting a recipe the way a regular fill reports its
++   * outcome (last-used date, event, TOTP for the auto-copy preference).
++   */
++  private async concludeSmartfillRecipe(
++    outcome: AutofillOutcome,
++    options: AutoFillOptions,
++    userId: UserId | undefined,
++    canUseTotp: boolean,
++  ): Promise<FillResult> {
++    if (outcome === AutofillOutcome.Denied) {
++      return AUTOFILL_DENIED;
++    }
++
++    if (outcome === AutofillOutcome.Filled) {
++      if (!options.skipLastUsed && userId) {
++        await this.cipherService.updateLastUsedDate(options.cipher.id, userId);
++      }
++      await this.eventCollectionService.collect(
++        EventType.Cipher_ClientAutofilled,
++        options.cipher.id,
++      );
++    }
++
++    if (canUseTotp) {
++      return await this.fillOutcomeWithTotp(outcome, options.cipher);
++    }
++    return Object.freeze({ outcome });
++  }
++
+   /**
+    * Checks if the cipher requires password reprompt and opens the password reprompt popout if necessary.
+    *
+@@ -673,13 +740,25 @@ export default class AutofillService implements AutofillServiceInterface {
+     const fields = options.cipher.fields;
+ 
+     if (fields && fields.length) {
+-      const fieldNames: string[] = [];
+-
+-      fields.forEach((f) => {
+-        if (f.name != null && AutofillService.hasValue(f.name)) {
+-          fieldNames.push(f.name.toLowerCase());
+-        }
+-      });
++      // Smartfill fork: keep each name aligned with its field (the index below picks the field)
++      // and leave out the recipe field, which is not a value for the page.
++      const namedFields: FieldView[] = fields.filter(
++        (f) =>
++          f.name != null && AutofillService.hasValue(f.name) && !isSmartfillRecipeFieldName(f.name),
++      );
++      const fieldNames: string[] = namedFields.map((f) => (f.name as string).toLowerCase());
++      const matchedFieldIndexes = new Set<number>();
++      // Smartfill fork: on a login, plain names ("Numéro fiscal") follow the rules shared with the
++      // Grok Bot connector (see `fillSmartfillExtraFields`): one control per field, ties left
++      // empty, never a password box. Bitwarden's own matching keeps handling its rule syntax
++      // (`id=`, `regex=`…), linked fields and custom-field-only <span> targets. A blanked name
++      // can never match, and keeps the indexes aligned.
++      const isLogin = options.cipher.type === CipherType.Login;
++      const bitwardenRuleNames: string[] = fieldNames.map((name, index) =>
++        namedFields[index].type === FieldType.Linked || AutofillService.isCustomFieldRuleName(name)
++          ? name
++          : "",
++      );
+ 
+       pageDetails.fields.forEach((field) => {
+         const fieldOpid = field.opid;
+@@ -699,9 +778,12 @@ export default class AutofillService implements AutofillServiceInterface {
+           return;
+         }
+ 
+-        const matchingIndex = this.findMatchingFieldIndex(field, fieldNames);
++        const matchingIndex = this.findMatchingFieldIndex(
++          field,
++          isLogin && field.tagName !== "span" ? bitwardenRuleNames : fieldNames,
++        );
+         if (matchingIndex > -1) {
+-          const matchingField: FieldView = fields[matchingIndex];
++          const matchingField: FieldView = namedFields[matchingIndex];
+           let val: string;
+           if (matchingField.type === FieldType.Linked) {
+             if (matchingField.linkedId == null) {
+@@ -723,9 +805,20 @@ export default class AutofillService implements AutofillServiceInterface {
+           }
+ 
+           filledFields[fieldOpid] = field;
++          matchedFieldIndexes.add(matchingIndex);
+           AutofillService.fillByOpid(fillScript, field, val);
+         }
+       });
++
++      if (isLogin) {
++        this.fillSmartfillExtraFields(
++          fillScript,
++          pageDetails,
++          filledFields,
++          namedFields,
++          matchedFieldIndexes,
++        );
++      }
+     }
+ 
+     let result: AutofillScript | null = null;
+@@ -754,6 +847,68 @@ export default class AutofillService implements AutofillServiceInterface {
+     return result;
+   }
+ 
++  /**
++   * Smartfill fork: whether a custom field name uses Bitwarden's rule syntax (`id=`, `name=`,
++   * `label=`, `placeholder=`, `regex=`, `csv=`) rather than being a plain label.
++   */
++  static isCustomFieldRuleName(name: string): boolean {
++    return /^(id|name|label|placeholder|regex|csv)=/i.test(name ?? "");
++  }
++
++  /**
++   * Smartfill fork: fills a login's extra custom fields, comparing their names with the page's
++   * labels the way the Grok Bot connector does (case- and accent-insensitive, exact before
++   * partial, ties left empty, one control per field). See `smartfill-field-matching.ts`.
++   */
++  private fillSmartfillExtraFields(
++    fillScript: AutofillScript,
++    pageDetails: AutofillPageDetails,
++    filledFields: { [id: string]: AutofillField },
++    namedFields: FieldView[],
++    matchedFieldIndexes: Set<number>,
++  ): void {
++    const pending = namedFields
++      .map((field, index) => ({ field, index }))
++      .filter(
++        ({ field, index }) =>
++          !matchedFieldIndexes.has(index) &&
++          field.type !== FieldType.Linked &&
++          field.value != null &&
++          field.value !== "" &&
++          !AutofillService.isCustomFieldRuleName(field.name as string),
++      );
++    if (!pending.length) {
++      return;
++    }
++
++    const candidates = pageDetails.fields.filter(
++      (field) =>
++        smartfillFieldIsCandidate(field) &&
++        !Object.prototype.hasOwnProperty.call(filledFields, field.opid),
++    );
++    const matches = smartfillMatchFields(
++      pending.map(({ field }) => field.name as string),
++      candidates,
++      Object.keys(filledFields),
++    );
++
++    matches.forEach((match, position) => {
++      const pageField = match.field;
++      if (!pageField?.opid) {
++        return;
++      }
++      const value = pending[position].field.value as string;
++      if (String(pageField.type).toLowerCase() === "checkbox") {
++        // The fill clicks the box first, so only tick boxes that are not ticked yet.
++        if (!smartfillIsTruthy(value) || pageField.checked) {
++          return;
++        }
++      }
++      filledFields[pageField.opid] = pageField;
++      AutofillService.fillByOpid(fillScript, pageField, value);
++    });
++  }
++
+   /**
+    * Generates fill script actions for targeted fields, mapping cipher values
+    * directly to field types identified by targeting rules. Reuses the standard
+diff --git a/apps/browser/src/autofill/services/collect-autofill-content.service.ts b/apps/browser/src/autofill/services/collect-autofill-content.service.ts
+index bfa8fbc..ebc2f8a 100644
+--- a/apps/browser/src/autofill/services/collect-autofill-content.service.ts
++++ b/apps/browser/src/autofill/services/collect-autofill-content.service.ts
+@@ -8,6 +8,7 @@ import {
+ import AutofillField from "../models/autofill-field";
+ import AutofillForm from "../models/autofill-form";
+ import AutofillPageDetails from "../models/autofill-page-details";
++import { SMARTFILL_LABELLEDBY_PROPERTY } from "../smartfill/smartfill-text";
+ import { ElementWithOpId, FillableFormFieldElement, FormFieldElement } from "../types";
+ import {
+   elementIsDescriptionDetailsElement,
+@@ -899,6 +900,7 @@ export class CollectAutofillContentService implements CollectAutofillContentServ
+         "label-tag": this.createAutofillFieldLabelTag(element as FillableFormFieldElement),
+         "label-data": this.getPropertyOrAttribute(element, AUTOFILL_ATTRIBUTES.DATA_LABEL),
+         "label-aria": this.getPropertyOrAttribute(element, AUTOFILL_ATTRIBUTES.ARIA_LABEL),
++        ...this.getAriaLabelledByLabel(element),
+         "label-top": this.createAutofillFieldTopLabel(element),
+         "label-right": this.createAutofillFieldRightLabel(element),
+         "label-left": this.createAutofillFieldLeftLabel(element),
+@@ -1008,6 +1010,35 @@ export class CollectAutofillContentService implements CollectAutofillContentServ
+    * @returns {string}
+    * @private
+    */
++  /**
++   * Smartfill fork: the text of the elements an `aria-labelledby` attribute points to, so extra
++   * login fields can be matched to fields labelled that way. Adds nothing when there is none.
++   */
++  private getAriaLabelledByLabel(element: FormFieldElement): Partial<AutofillField> {
++    const text = this.getAriaLabelledByText(element);
++    return text ? { [SMARTFILL_LABELLEDBY_PROPERTY]: text } : {};
++  }
++
++  private getAriaLabelledByText(element: FormFieldElement): string | undefined {
++    const ids = element.getAttribute?.("aria-labelledby");
++    if (!ids) {
++      return undefined;
++    }
++    const root = element.getRootNode() as Document | ShadowRoot;
++    const text = ids
++      .split(/\s+/)
++      .filter(Boolean)
++      .map((id) => {
++        const target =
++          (typeof root.getElementById === "function" ? root.getElementById(id) : null) ??
++          globalThis.document.getElementById(id);
++        return target?.textContent?.trim() ?? "";
++      })
++      .filter(Boolean)
++      .join(" ");
++    return text || undefined;
++  }
++
+   private createAutofillFieldLabelTag(element: FillableFormFieldElement): string {
+     const labelElementsSet: Set<HTMLElement> = new Set(element.labels);
+     if (labelElementsSet.size) {
+diff --git a/apps/browser/src/autofill/services/insert-autofill-content.service.ts b/apps/browser/src/autofill/services/insert-autofill-content.service.ts
+index a207e11..41c2f3c 100644
+--- a/apps/browser/src/autofill/services/insert-autofill-content.service.ts
++++ b/apps/browser/src/autofill/services/insert-autofill-content.service.ts
+@@ -5,11 +5,13 @@ import AutofillScript, {
+   FillScript,
+   FillScriptActionTypes,
+ } from "../models/autofill-script";
++import { smartfillFoldText, smartfillIsTruthy } from "../smartfill/smartfill-text";
+ import { FormFieldElement } from "../types";
+ import {
+   currentlyInSandboxedIframe,
+   elementIsFillableFormField,
+   elementIsInputElement,
++  elementIsSelectElement,
+   isReadonlyOrDisabledFormFieldElement,
+ } from "../utils";
+ 
+@@ -58,6 +60,21 @@ class InsertAutofillContentService implements InsertAutofillContentServiceInterf
+     }
+   }
+ 
++  /**
++   * Smartfill fork: fills one element with Bitwarden's usual insertion (click, focus, key and
++   * input events). Used by saved entry steps, which target elements by selector.
++   *
++   * @param element - The element to fill.
++   * @param value - The value to insert.
++   * @param showAnimations - Whether to play the fill animation; keeps the last setting if omitted.
++   */
++  insertValueIntoElement(element: FormFieldElement, value: string, showAnimations?: boolean): void {
++    if (typeof showAnimations === "boolean") {
++      this.showAnimations = showAnimations;
++    }
++    this.insertValueIntoField(element, value);
++  }
++
+   /**
+    * Checks if the autofill is occurring on a page that can be considered secure. If the page is not secure,
+    * the user is prompted to confirm that they want to autofill on the page.
+@@ -219,12 +236,28 @@ class InsertAutofillContentService implements InsertAutofillContentServiceInterf
+     const isFillableCheckboxOrRadioElement =
+       elementIsInputElement(element) &&
+       new Set(["checkbox", "radio"]).has(element.type) &&
+-      new Set(["true", "y", "1", "yes", "✓"]).has(String(value).toLowerCase());
++      smartfillIsTruthy(value);
+     if (isFillableCheckboxOrRadioElement) {
+       this.handleInsertValueAndTriggerSimulatedEvents(element, () => (element.checked = true));
+       return;
+     }
+ 
++    // Smartfill fork: a drop-down takes the option whose value, or failing that whose text
++    // (ignoring case and accents), matches; an unknown value leaves the drop-down alone.
++    if (elementIsSelectElement(element)) {
++      const options = Array.from(element.options);
++      const option =
++        options.find((candidate) => candidate.value === value) ??
++        options.find((candidate) => smartfillFoldText(candidate.text) === smartfillFoldText(value));
++      if (option) {
++        this.handleInsertValueAndTriggerSimulatedEvents(
++          element,
++          () => (element.value = option.value),
++        );
++      }
++      return;
++    }
++
+     this.handleInsertValueAndTriggerSimulatedEvents(element, () => (element.value = value));
+   }
+ 
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-autofill-service.spec.ts b/apps/browser/src/autofill/smartfill/smartfill-autofill-service.spec.ts
+new file mode 100644
+index 0000000..ca4a7f0
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-autofill-service.spec.ts
+@@ -0,0 +1,275 @@
++import { mock } from "jest-mock-extended";
++import { of } from "rxjs";
++
++import { AccountService } from "@bitwarden/common/auth/abstractions/account.service";
++import { AuthService } from "@bitwarden/common/auth/abstractions/auth.service";
++import { UserVerificationService } from "@bitwarden/common/auth/abstractions/user-verification/user-verification.service.abstraction";
++import { AutofillSettingsServiceAbstraction } from "@bitwarden/common/autofill/services/autofill-settings.service";
++import { DomainSettingsService } from "@bitwarden/common/autofill/services/domain-settings.service";
++import { UserNotificationSettingsServiceAbstraction } from "@bitwarden/common/autofill/services/user-notification-settings.service";
++import { BillingAccountProfileStateService } from "@bitwarden/common/billing/abstractions/account/billing-account-profile-state.service";
++import { EventCollectionService } from "@bitwarden/common/dirt/event-logs";
++import { AnimationControlService } from "@bitwarden/common/platform/abstractions/animation-control.service";
++import { LogService } from "@bitwarden/common/platform/abstractions/log.service";
++import { MessageListener } from "@bitwarden/common/platform/messaging";
++import { CipherService } from "@bitwarden/common/vault/abstractions/cipher.service";
++import { TotpService } from "@bitwarden/common/vault/abstractions/totp.service";
++import { CipherType, FieldType } from "@bitwarden/common/vault/enums";
++import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
++import { FieldView } from "@bitwarden/common/vault/models/view/field.view";
++import { LoginView } from "@bitwarden/common/vault/models/view/login.view";
++
++import { ScriptInjectorService } from "../../platform/services/abstractions/script-injector.service";
++import { AutofillOutcome } from "../enums/autofill-outcome.enum";
++import AutofillField from "../models/autofill-field";
++import AutofillPageDetails from "../models/autofill-page-details";
++import AutofillScript from "../models/autofill-script";
++import { AutofillLifecycleService } from "../services/abstractions/autofill-lifecycle.service";
++import { GenerateFillScriptOptions } from "../services/abstractions/autofill.service";
++import AutofillService from "../services/autofill.service";
++
++import { SmartfillRecipeBackground } from "./smartfill-recipe.background";
++
++const PAGE_URL = "https://caf.example/login";
++
++function customField(name: string, value: string, type: FieldType = FieldType.Text): FieldView {
++  const view = new FieldView();
++  view.name = name;
++  view.value = value;
++  view.type = type;
++  return view;
++}
++
++function loginCipher(fields: FieldView[]): CipherView {
++  const cipher = new CipherView();
++  cipher.id = "cipher-id";
++  cipher.type = CipherType.Login;
++  cipher.login = Object.assign(new LoginView(), { username: "", password: "246810", uris: [] });
++  cipher.fields = fields;
++  return cipher;
++}
++
++let elementNumber = 0;
++function pageField(opid: string, props: Partial<AutofillField>): AutofillField {
++  return {
++    opid,
++    elementNumber: elementNumber++,
++    viewable: true,
++    htmlID: null,
++    htmlName: null,
++    htmlClass: null,
++    tabindex: null,
++    title: null,
++    tagName: "input",
++    type: "text",
++    form: "form",
++    ...props,
++  } as AutofillField;
++}
++
++function pageDetails(fields: AutofillField[]): AutofillPageDetails {
++  return {
++    title: "Mon Compte",
++    url: PAGE_URL,
++    documentUrl: PAGE_URL,
++    forms: {
++      form: { opid: "form", htmlName: "", htmlID: "login", htmlAction: "", htmlMethod: "post" },
++    },
++    fields,
++    collectedTimestamp: 0,
++  } as unknown as AutofillPageDetails;
++}
++
++/** opid → value of every fill action in the script. */
++function filledValues(script: AutofillScript | null): Record<string, string> {
++  const values: Record<string, string> = {};
++  for (const [action, opid, value] of script?.script ?? []) {
++    if (action === "fill_by_opid") {
++      values[opid] = value as string;
++    }
++  }
++  return values;
++}
++
++describe("AutofillService with Smartfill", () => {
++  const cipherService = mock<CipherService>();
++  const eventCollectionService = mock<EventCollectionService>();
++  const accountService = mock<AccountService>();
++  const billingAccountProfileStateService = mock<BillingAccountProfileStateService>();
++  const domainSettingsService = mock<DomainSettingsService>();
++  const animationControlService = mock<AnimationControlService>();
++  const recipeBackground = mock<SmartfillRecipeBackground>();
++  let autofillService: AutofillService;
++
++  const options = (cipher: CipherView): GenerateFillScriptOptions => ({
++    skipUsernameOnlyFill: false,
++    onlyEmptyFields: false,
++    fillNewPassword: false,
++    allowTotpAutofill: false,
++    autoSubmitLogin: false,
++    cipher,
++    canAccessTotp: false,
++    tabUrl: PAGE_URL,
++    defaultUriMatch: 0,
++  });
++
++  beforeEach(() => {
++    jest.clearAllMocks();
++    accountService.activeAccount$ = of({ id: "user-id" } as any);
++    billingAccountProfileStateService.hasPremiumFromAnySource$.mockReturnValue(of(false));
++    domainSettingsService.resolvedDefaultUriMatchStrategy$ = of(0) as any;
++    animationControlService.enableAutofillAnimation$ = of(true);
++    autofillService = new AutofillService(
++      cipherService,
++      mock<AutofillSettingsServiceAbstraction>(),
++      mock<TotpService>(),
++      eventCollectionService,
++      mock<LogService>(),
++      domainSettingsService,
++      mock<UserVerificationService>(),
++      billingAccountProfileStateService,
++      mock<ScriptInjectorService>(),
++      accountService,
++      mock<AuthService>(),
++      mock<UserNotificationSettingsServiceAbstraction>(),
++      mock<MessageListener>(),
++      animationControlService,
++      mock<AutofillLifecycleService>(),
++      recipeBackground,
++    );
++  });
++
++  describe("extra login fields", () => {
++    it("fills each custom field into the best-matching control and the password into the password box", async () => {
++      const details = pageDetails([
++        pageField("num", { "label-tag": "Numéro allocataire *", htmlName: "numeroAllocataire" }),
++        pageField("code", { "label-tag": "Code confidentiel", htmlID: "code", type: "password" }),
++        pageField("dob", {
++          placeholder: "Date de naissance (JJ/MM/AAAA)",
++          // Bitwarden's "label to the right" guess: the next field's label.
++          "label-right": "Pays",
++        }),
++        pageField("pays", { "label-tag": "Pays", tagName: "select", type: "select-one" }),
++        pageField("cid", { "label-aria-labelledby": "Identifiant client" }),
++        pageField("c1", { "label-tag": "Code" }),
++        pageField("c2", { "label-tag": "Code" }),
++        pageField("remember", {
++          "label-tag": "Se souvenir de moi",
++          type: "checkbox",
++          checked: false,
++        }),
++      ]);
++      const cipher = loginCipher([
++        customField("Numero allocataire", "1234567"),
++        customField("Date de naissance", "01/02/1990", FieldType.Hidden),
++        customField("Pays", "france"),
++        customField("Se souvenir de moi", "true", FieldType.Boolean),
++        customField("Identifiant client", "CL-998877"),
++        customField("Code", "should-not-fill"),
++      ]);
++
++      const script = await autofillService["generateFillScript"](details, options(cipher));
++
++      expect(filledValues(script)).toEqual({
++        num: "1234567",
++        dob: "01/02/1990",
++        pays: "france",
++        remember: "true",
++        cid: "CL-998877",
++        code: "246810",
++      });
++    });
++
++    it("never types the recipe field into the page", async () => {
++      const details = pageDetails([
++        pageField("recipe", { "label-tag": "grokbot:recipe", htmlID: "grokbot:recipe" }),
++        pageField("pw", { type: "password", htmlID: "password" }),
++      ]);
++      const cipher = loginCipher([customField("grokbot:recipe", '{"steps":[{"click":"#a"}]}')]);
++
++      const script = await autofillService["generateFillScript"](details, options(cipher));
++
++      expect(filledValues(script)).toEqual({ pw: "246810" });
++    });
++
++    it("keeps Bitwarden's rule syntax working", async () => {
++      const details = pageDetails([
++        pageField("a", { htmlID: "customer_no_1" }),
++        pageField("b", { htmlID: "customer_no_2" }),
++        pageField("pw", { type: "password" }),
++      ]);
++      const cipher = loginCipher([customField("regex=^customer_no_", "4242")]);
++
++      const script = await autofillService["generateFillScript"](details, options(cipher));
++
++      expect(filledValues(script)).toEqual({ a: "4242", b: "4242", pw: "246810" });
++    });
++
++    it("leaves a ticked checkbox and a false value alone", async () => {
++      const details = pageDetails([
++        pageField("ticked", { "label-tag": "Rester connecté", type: "checkbox", checked: true }),
++        pageField("news", { "label-tag": "Newsletter", type: "checkbox", checked: false }),
++        pageField("pw", { type: "password" }),
++      ]);
++      const cipher = loginCipher([
++        customField("Rester connecté", "true", FieldType.Boolean),
++        customField("Newsletter", "false", FieldType.Boolean),
++      ]);
++
++      const script = await autofillService["generateFillScript"](details, options(cipher));
++
++      expect(filledValues(script)).toEqual({ pw: "246810" });
++    });
++  });
++
++  describe("recipes", () => {
++    const tab = { id: 1, url: PAGE_URL } as chrome.tabs.Tab;
++    const fillOptions = (cipher: CipherView, extra = {}) => ({
++      tab,
++      cipher,
++      pageDetails: [
++        { frameId: 0, tab, details: pageDetails([pageField("pw", { type: "password" })]) },
++      ],
++      ...extra,
++    });
++
++    it("hands the fill to the recipe runner and reports its outcome", async () => {
++      recipeBackground.tryRun.mockResolvedValue(AutofillOutcome.Filled);
++      const cipher = loginCipher([customField("grokbot:recipe", '{"steps":[{"click":"#a"}]}')]);
++
++      const result = await autofillService.doAutoFill(fillOptions(cipher));
++
++      expect(result.outcome).toBe(AutofillOutcome.Filled);
++      expect(recipeBackground.tryRun).toHaveBeenCalledWith(
++        expect.objectContaining({ cipher, tab, allowRecipe: true, canAccessTotp: false }),
++      );
++      expect(cipherService.updateLastUsedDate).toHaveBeenCalledWith("cipher-id", "user-id");
++      expect(eventCollectionService.collect).toHaveBeenCalled();
++    });
++
++    it("tells the recipe runner when the fill comes from a page load", async () => {
++      recipeBackground.tryRun.mockResolvedValue(AutofillOutcome.Absent);
++      const cipher = loginCipher([customField("grokbot:recipe", '{"steps":[{"click":"#a"}]}')]);
++
++      const result = await autofillService.doAutoFill(fillOptions(cipher, { allowRecipe: false }));
++
++      expect(result.outcome).toBe(AutofillOutcome.Absent);
++      expect(recipeBackground.tryRun).toHaveBeenCalledWith(
++        expect.objectContaining({ allowRecipe: false }),
++      );
++      expect(cipherService.updateLastUsedDate).not.toHaveBeenCalled();
++    });
++
++    it("reports a refused recipe as denied", async () => {
++      recipeBackground.tryRun.mockResolvedValue(AutofillOutcome.Denied);
++      const result = await autofillService.doAutoFill(fillOptions(loginCipher([])));
++      expect(result.outcome).toBe(AutofillOutcome.Denied);
++    });
++
++    it("leaves automated login (auto-submit) to Bitwarden's own flow", async () => {
++      recipeBackground.tryRun.mockResolvedValue(AutofillOutcome.Filled);
++      await autofillService.doAutoFill(fillOptions(loginCipher([]), { autoSubmitLogin: true }));
++      expect(recipeBackground.tryRun).not.toHaveBeenCalled();
++    });
++  });
++});
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-field-matching.spec.ts b/apps/browser/src/autofill/smartfill/smartfill-field-matching.spec.ts
+new file mode 100644
+index 0000000..acde277
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-field-matching.spec.ts
+@@ -0,0 +1,103 @@
++import AutofillField from "../models/autofill-field";
++
++import {
++  smartfillFieldIsCandidate,
++  smartfillLabelScore,
++  smartfillMatchFields,
++} from "./smartfill-field-matching";
++
++let opid = 0;
++function pageField(props: Partial<AutofillField>): AutofillField {
++  return {
++    opid: `__${opid++}`,
++    elementNumber: opid,
++    viewable: true,
++    htmlID: null,
++    htmlName: null,
++    htmlClass: null,
++    tabindex: null,
++    title: null,
++    tagName: "input",
++    type: "text",
++    ...props,
++  } as AutofillField;
++}
++
++describe("smartfillLabelScore", () => {
++  it("scores exact, partial and all-words matches like the connector", () => {
++    expect(smartfillLabelScore("numero fiscal", "numero fiscal")).toBe(3);
++    expect(smartfillLabelScore("numero fiscal", "votre numero fiscal 13 chiffres")).toBe(2);
++    expect(smartfillLabelScore("code", "code postal")).toBe(2);
++    expect(smartfillLabelScore("pin", "code pin")).toBe(1);
++    expect(smartfillLabelScore("date naissance", "naissance date du jour")).toBe(1);
++    expect(smartfillLabelScore("numero fiscal", "mot de passe")).toBe(0);
++  });
++});
++
++describe("smartfillMatchFields", () => {
++  it("matches labels ignoring case and accents, best score first", () => {
++    const allocataire = pageField({ "label-tag": "Numéro allocataire *" });
++    const code = pageField({ "label-tag": "Code confidentiel", htmlName: "pin" });
++    const search = pageField({ placeholder: "Rechercher" });
++    const matches = smartfillMatchFields(
++      ["NUMERO ALLOCATAIRE", "code confidentiel"],
++      [search, allocataire, code],
++    );
++    expect(matches.map((m) => m.field)).toEqual([allocataire, code]);
++  });
++
++  it("uses aria-labelledby text, aria-label, placeholder, name, id and title", () => {
++    const byLabelledBy = pageField({ "label-aria-labelledby": "Identifiant client" });
++    const byName = pageField({ htmlName: "date_de_naissance" });
++    expect(smartfillMatchFields(["Identifiant client"], [byLabelledBy])[0].field).toBe(
++      byLabelledBy,
++    );
++    expect(smartfillMatchFields(["Date de naissance"], [byName])[0].field).toBe(byName);
++  });
++
++  it("prefers an exact match over a partial one", () => {
++    const partial = pageField({ "label-tag": "Numéro fiscal du conjoint" });
++    const exact = pageField({ "label-tag": "Numéro fiscal" });
++    expect(smartfillMatchFields(["Numéro fiscal"], [partial, exact])[0].field).toBe(exact);
++  });
++
++  it("leaves ties empty instead of guessing", () => {
++    const first = pageField({ "label-tag": "Code" });
++    const second = pageField({ placeholder: "code" });
++    expect(smartfillMatchFields(["Code"], [first, second])).toEqual([
++      { field: null, ambiguous: true },
++    ]);
++  });
++
++  it("gives each control to one field only and skips taken ones", () => {
++    const only = pageField({ "label-tag": "Numéro client" });
++    const taken = pageField({ "label-tag": "Numéro client" });
++    const matches = smartfillMatchFields(
++      ["Numéro client", "Numero client"],
++      [only, taken],
++      [taken.opid],
++    );
++    expect(matches[0].field).toBe(only);
++    expect(matches[1].field).toBeNull();
++  });
++});
++
++describe("smartfillFieldIsCandidate", () => {
++  it("accepts visible text inputs, selects, textareas and checkboxes", () => {
++    expect(smartfillFieldIsCandidate(pageField({}))).toBe(true);
++    expect(smartfillFieldIsCandidate(pageField({ tagName: "select", type: "select-one" }))).toBe(
++      true,
++    );
++    expect(smartfillFieldIsCandidate(pageField({ type: "checkbox", viewable: false }))).toBe(true);
++  });
++
++  it("refuses passwords, hidden, buttons, read-only, disabled and invisible fields", () => {
++    expect(smartfillFieldIsCandidate(pageField({ type: "password" }))).toBe(false);
++    expect(smartfillFieldIsCandidate(pageField({ type: "hidden" }))).toBe(false);
++    expect(smartfillFieldIsCandidate(pageField({ type: "submit" }))).toBe(false);
++    expect(smartfillFieldIsCandidate(pageField({ readonly: true }))).toBe(false);
++    expect(smartfillFieldIsCandidate(pageField({ disabled: true }))).toBe(false);
++    expect(smartfillFieldIsCandidate(pageField({ viewable: false }))).toBe(false);
++    expect(smartfillFieldIsCandidate(pageField({ tagName: "span" }))).toBe(false);
++  });
++});
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-field-matching.ts b/apps/browser/src/autofill/smartfill/smartfill-field-matching.ts
+new file mode 100644
+index 0000000..f5c0da9
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-field-matching.ts
+@@ -0,0 +1,143 @@
++/**
++ * Smartfill fork — matching a login's extra custom fields ("Numéro allocataire", "Code
++ * confidentiel"…) to the page's form controls. Same rules as the Grok Bot connector's
++ * `__matchFields` (`docs/recipes.md`, section 1); keep both in sync.
++ *
++ * The field name is compared with each control's label, aria-labelledby text, aria-label,
++ * placeholder, name, id and title, ignoring case and accents:
++ *  - 3: the normalized texts are equal,
++ *  - 2: one contains the other (both at least 4 characters),
++ *  - 1: every word of the name appears in the label.
++ * The best-scoring control wins; if two controls tie for the best score, neither is filled
++ * (better empty than wrong). Each control takes at most one field.
++ */
++import AutofillField from "../models/autofill-field";
++
++import { SMARTFILL_LABELLEDBY_PROPERTY, smartfillNormalizeLabel } from "./smartfill-text";
++
++export { SMARTFILL_LABELLEDBY_PROPERTY } from "./smartfill-text";
++
++/** Input types a custom field is never typed into. */
++const EXCLUDED_INPUT_TYPES = new Set([
++  "hidden",
++  "submit",
++  "button",
++  "image",
++  "reset",
++  "file",
++  "password",
++]);
++
++const FILLABLE_TAGS = new Set(["input", "select", "textarea"]);
++
++/** The normalized texts a control can be recognised by. */
++export function smartfillFieldLabels(field: AutofillField): string[] {
++  return [
++    field["label-tag"],
++    field[SMARTFILL_LABELLEDBY_PROPERTY],
++    field["label-aria"],
++    field.placeholder,
++    field.htmlName,
++    field.htmlID,
++    field.title,
++  ]
++    .map(smartfillNormalizeLabel)
++    .filter(Boolean);
++}
++
++/** Scores how well one normalized label matches one normalized name (0 = no match). */
++export function smartfillLabelScore(name: string, label: string): number {
++  if (!name || !label) {
++    return 0;
++  }
++  if (label === name) {
++    return 3;
++  }
++  if (name.length >= 4 && label.length >= 4 && (label.includes(name) || name.includes(label))) {
++    return 2;
++  }
++  const labelWords = label.split(" ");
++  if (name.split(" ").every((word) => labelWords.includes(word))) {
++    return 1;
++  }
++  return 0;
++}
++
++/**
++ * Whether a collected control may take an extra field: an input (not password, hidden or a
++ * button), select or textarea that is enabled, writable and viewable (checkboxes may be styled
++ * out of view).
++ */
++export function smartfillFieldIsCandidate(field: AutofillField): boolean {
++  if (!field?.opid) {
++    return false;
++  }
++  const tag = String(field.tagName ?? "").toLowerCase();
++  if (!FILLABLE_TAGS.has(tag)) {
++    return false;
++  }
++  const type = String(field.type ?? "").toLowerCase();
++  if (tag === "input" && EXCLUDED_INPUT_TYPES.has(type)) {
++    return false;
++  }
++  if (field.disabled || field.readonly) {
++    return false;
++  }
++  return !!field.viewable || type === "checkbox";
++}
++
++export type SmartfillFieldMatch = { field: AutofillField | null; ambiguous: boolean };
++
++/**
++ * Matches each name (in order) to at most one candidate control.
++ *
++ * @param names The custom field names, in the item's order.
++ * @param candidates Controls that may take a value (see {@link smartfillFieldIsCandidate}).
++ * @param taken Opids already filled by something else.
++ */
++export function smartfillMatchFields(
++  names: string[],
++  candidates: AutofillField[],
++  taken: Iterable<string> = [],
++): SmartfillFieldMatch[] {
++  const used = new Set<string>(taken);
++  const labelCache = new Map<AutofillField, string[]>();
++  const labelsOf = (field: AutofillField) => {
++    let labels = labelCache.get(field);
++    if (!labels) {
++      labels = smartfillFieldLabels(field);
++      labelCache.set(field, labels);
++    }
++    return labels;
++  };
++
++  return names.map((rawName): SmartfillFieldMatch => {
++    const name = smartfillNormalizeLabel(rawName);
++    let best: AutofillField | null = null;
++    let bestScore = 0;
++    let tie = false;
++
++    for (const field of candidates) {
++      if (used.has(field.opid)) {
++        continue;
++      }
++      let score = 0;
++      for (const label of labelsOf(field)) {
++        score = Math.max(score, smartfillLabelScore(name, label));
++      }
++      if (score > bestScore) {
++        best = field;
++        bestScore = score;
++        tie = false;
++      } else if (score && score === bestScore) {
++        tie = true;
++      }
++    }
++
++    if (!best || tie) {
++      return { field: null, ambiguous: tie };
++    }
++    used.add(best.opid);
++    return { field: best, ambiguous: false };
++  });
++}
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-messages.ts b/apps/browser/src/autofill/smartfill/smartfill-messages.ts
+new file mode 100644
+index 0000000..9696482
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-messages.ts
+@@ -0,0 +1,69 @@
++/**
++ * Smartfill fork — messages between the background and the content scripts.
++ */
++import type { SmartfillResolvedStep } from "./smartfill-recipe-format";
++
++export const SmartfillCommand = Object.freeze({
++  /** background → frame: run (or resume) a recipe. */
++  run: "runSmartfillRecipe",
++  /** background → frame: is the recipe's first target here? */
++  probe: "probeSmartfillRecipe",
++  /** background → frame: stop a running recipe. */
++  cancel: "cancelSmartfillRecipe",
++  /** background → frame: show a short notice (recipe errors). */
++  notice: "showSmartfillNotice",
++  /** frame → background: a step started, acted, finished… */
++  progress: "smartfillRecipeProgress",
++} as const);
++
++export type SmartfillRunMessage = {
++  command: typeof SmartfillCommand.run;
++  runId: string;
++  steps: SmartfillResolvedStep[];
++  /** Index of the first step to run (steps before it already ran on an earlier page). */
++  startAt: number;
++  /**
++   * True when the background continues a run after a page load. A frame that is still running
++   * the run (its document did not change after all) keeps going instead of starting over.
++   */
++  resume?: boolean;
++  /** URL the background checked against the login; the frame must still be on its origin. */
++  expectedUrl: string;
++  /** Ask before filling an http page when the login holds an https address for it. */
++  confirmInsecure?: boolean;
++  showAnimations?: boolean;
++};
++
++export type SmartfillProbeMessage = {
++  command: typeof SmartfillCommand.probe;
++  selector: string;
++};
++
++export type SmartfillCancelMessage = {
++  command: typeof SmartfillCommand.cancel;
++  runId?: string;
++};
++
++export type SmartfillNoticeMessage = {
++  command: typeof SmartfillCommand.notice;
++  text: string;
++  /** When set, the notice shows only if the frame is still on this URL's origin. */
++  expectedUrl?: string;
++};
++
++/**
++ * `start`: waiting for the step's element (nothing done yet, safe to redo);
++ * `acting`: about to click / type / press (the step counts as done if the page navigates);
++ * `done` / `skipped`: the step completed; `finished` / `failed`: the run ended.
++ */
++export type SmartfillProgressPhase =
++  "start" | "acting" | "done" | "skipped" | "finished" | "failed";
++
++export type SmartfillProgressMessage = {
++  command: typeof SmartfillCommand.progress;
++  runId: string;
++  index: number;
++  phase: SmartfillProgressPhase;
++  /** Never contains a value from the vault. */
++  error?: string;
++};
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts
+new file mode 100644
+index 0000000..e87b22e
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts
+@@ -0,0 +1,183 @@
++import { CipherType, FieldType } from "@bitwarden/common/vault/enums";
++import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
++import { FieldView } from "@bitwarden/common/vault/models/view/field.view";
++import { LoginView } from "@bitwarden/common/vault/models/view/login.view";
++
++import {
++  parseSmartfillRecipe,
++  resolveSmartfillSteps,
++  resolveSmartfillValue,
++  smartfillExtraFields,
++  smartfillFoldText,
++  smartfillHasRecipe,
++  smartfillNormalizeLabel,
++  smartfillStepSelector,
++  smartfillStepTimeout,
++} from "./smartfill-recipe-format";
++
++function field(name: string, value: string | null, type: FieldType = FieldType.Text): FieldView {
++  const view = new FieldView();
++  view.name = name;
++  view.value = value as string;
++  view.type = type;
++  return view;
++}
++
++function login(fields: FieldView[] = [], extra: Partial<LoginView> = {}): CipherView {
++  const cipher = new CipherView();
++  cipher.type = CipherType.Login;
++  cipher.login = Object.assign(new LoginView(), {
++    username: "jdoe",
++    password: "fake-pass-123",
++    ...extra,
++  });
++  cipher.fields = fields;
++  return cipher;
++}
++
++const noTotp = async () => ({ code: null as string | null, error: "no premium" });
++
++describe("smartfill text helpers", () => {
++  it("folds accents and case like the connector", () => {
++    expect(smartfillFoldText("  Numéro Fiscal ")).toBe("numero fiscal");
++    expect(smartfillFoldText("GROKBOT:Recipe")).toBe("grokbot:recipe");
++  });
++
++  it("normalizes labels to words", () => {
++    expect(smartfillNormalizeLabel("Numéro allocataire * :")).toBe("numero allocataire");
++    expect(smartfillNormalizeLabel("Code_confidentiel(6 chiffres)")).toBe(
++      "code confidentiel 6 chiffres",
++    );
++  });
++});
++
++describe("parseSmartfillRecipe", () => {
++  it("returns null without a recipe field or for other item types", () => {
++    expect(parseSmartfillRecipe(login([field("PIN", "1234")]))).toBeNull();
++    const card = new CipherView();
++    card.type = CipherType.Card;
++    card.fields = [field("grokbot:recipe", '{"steps":[{"click":"#a"}]}')];
++    expect(parseSmartfillRecipe(card)).toBeNull();
++    expect(smartfillHasRecipe(login([field("grokbot:recipe", "   ")]))).toBe(false);
++  });
++
++  it("reads the steps object and a bare array, whatever the field name's case", () => {
++    const steps = [{ fill: "username", into: "#id" }, { click: "button[type=submit]" }];
++    expect(
++      parseSmartfillRecipe(login([field("grokbot:recipe", JSON.stringify({ steps }))])),
++    ).toEqual({ steps });
++    expect(
++      parseSmartfillRecipe(
++        login([field("GrokBot:Recipe", JSON.stringify(steps), FieldType.Hidden)]),
++      ),
++    ).toEqual({ steps });
++  });
++
++  it("explains what is wrong", () => {
++    const parse = (value: string) =>
++      parseSmartfillRecipe(login([field("grokbot:recipe", value)])) as { error: string };
++    expect(parse("{steps:").error).toMatch(/^it is not valid JSON/);
++    expect(parse('{"steps":[]}').error).toBe('it has no "steps" list');
++    expect(parse('{"steps":[{"type":"x"}]}').error).toBe(
++      "step 1 is not one of fill, click, wait, keypad, press",
++    );
++    expect(parse('[{"click":"#a"},{"fill":"password"}]').error).toBe(
++      'step 2 needs an "into" selector',
++    );
++    expect(parse('[{"press":"F5"}]').error).toMatch(/unknown key "F5"/);
++    expect(parse(JSON.stringify(Array.from({ length: 41 }, () => ({ wait: 1 })))).error).toBe(
++      "it has more than 40 steps",
++    );
++  });
++});
++
++describe("step helpers", () => {
++  it("uses the connector's timeouts", () => {
++    expect(smartfillStepTimeout({ fill: "username", into: "#a" })).toBe(5000);
++    expect(smartfillStepTimeout({ wait: "#a" })).toBe(10000);
++    expect(smartfillStepTimeout({ click: "#a", timeout: 8000 })).toBe(8000);
++    expect(smartfillStepTimeout({ click: "#a", timeout: 99999 })).toBe(30000);
++  });
++
++  it("finds each step's selector", () => {
++    expect(smartfillStepSelector({ fill: "password", into: " #pw " })).toBe("#pw");
++    expect(smartfillStepSelector({ keypad: "password", keys: ".pad button" })).toBe(".pad button");
++    expect(smartfillStepSelector({ wait: 500 })).toBeNull();
++    expect(smartfillStepSelector({ press: "Enter" })).toBeNull();
++  });
++});
++
++describe("values", () => {
++  const cipher = login([
++    field("Numéro fiscal", "1234567890123"),
++    field("Code confidentiel", "246810", FieldType.Hidden),
++    field("grokbot:recipe", '[{"click":"#a"}]'),
++    field("Linked", "x", FieldType.Linked),
++  ]);
++
++  it("resolves username, password, fields (ignoring accents), text and totp", async () => {
++    await expect(resolveSmartfillValue(cipher, "username", noTotp)).resolves.toEqual({
++      value: "jdoe",
++      kind: "username",
++    });
++    await expect(resolveSmartfillValue(cipher, "field:numero FISCAL", noTotp)).resolves.toEqual({
++      value: "1234567890123",
++      kind: "field",
++    });
++    await expect(resolveSmartfillValue(cipher, "text:France", noTotp)).resolves.toEqual({
++      value: "France",
++      kind: "text",
++    });
++    await expect(resolveSmartfillValue(cipher, "totp", noTotp)).resolves.toEqual({
++      error: "the login has no authenticator key",
++    });
++    const withTotp = login([], { totp: "JBSWY3DPEHPK3PXP" });
++    await expect(resolveSmartfillValue(withTotp, "totp", noTotp)).resolves.toEqual({
++      error: "no premium",
++    });
++    await expect(
++      resolveSmartfillValue(withTotp, "totp", async () => ({ code: "123456" })),
++    ).resolves.toEqual({ value: "123456", kind: "totp" });
++  });
++
++  it("never offers the recipe or linked fields as extra fields", async () => {
++    expect(smartfillExtraFields(cipher).map((f) => f.name)).toEqual([
++      "Numéro fiscal",
++      "Code confidentiel",
++    ]);
++    await expect(resolveSmartfillValue(cipher, "field:grokbot:recipe", noTotp)).resolves.toEqual({
++      error: 'the login has no custom field "grokbot:recipe"',
++    });
++    await expect(resolveSmartfillValue(cipher, "secret", noTotp)).resolves.toHaveProperty("error");
++  });
++
++  it("resolves a whole recipe up front and stops at the first missing value", async () => {
++    const steps = [
++      { fill: "field:Numéro fiscal", into: "input[name=spi]" },
++      { keypad: "password", keys: ".pad button", delay: 5000 },
++      { wait: 99999 },
++      { press: "Enter", optional: true },
++    ];
++    const resolved = await resolveSmartfillSteps(cipher, steps, noTotp);
++    expect(resolved).toEqual({
++      steps: [
++        expect.objectContaining({
++          kind: "fill",
++          selector: "input[name=spi]",
++          value: "1234567890123",
++        }),
++        expect.objectContaining({ kind: "keypad", value: "fake-pass-123", delayMs: 2000 }),
++        expect.objectContaining({ kind: "wait", pauseMs: 30000 }),
++        expect.objectContaining({ kind: "press", value: "enter", optional: true }),
++      ],
++    });
++
++    await expect(
++      resolveSmartfillSteps(
++        cipher,
++        [{ click: "#a" }, { fill: "field:Missing", into: "#b" }],
++        noTotp,
++      ),
++    ).resolves.toEqual({ error: 'the login has no custom field "Missing"', step: 2 });
++  });
++});
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts
+new file mode 100644
+index 0000000..aee4151
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts
+@@ -0,0 +1,320 @@
++/**
++ * Smartfill fork (unofficial, personal build) — saved entry steps ("recipes") and extra login
++ * fields. The format is shared with the Grok Bot Bitwarden connector
++ * (`docs/recipes.md`); keep both implementations in sync.
++ *
++ * A login opts in with a custom field named `grokbot:recipe` whose value is JSON:
++ * `{"steps": [{"fill": "username", "into": "#id"}, {"click": "#next"}, ...]}` (a bare array of
++ * steps is accepted too).
++ */
++import { FieldType, CipherType } from "@bitwarden/common/vault/enums";
++import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
++
++import { smartfillFoldText } from "./smartfill-text";
++
++export { smartfillFoldText, smartfillNormalizeLabel } from "./smartfill-text";
++
++export const SMARTFILL_RECIPE_FIELD_NAME = "grokbot:recipe";
++export const SMARTFILL_MAX_RECIPE_STEPS = 40;
++export const SMARTFILL_MAX_TIMEOUT_MS = 30000;
++export const SMARTFILL_DEFAULT_TIMEOUT_MS = 5000;
++export const SMARTFILL_DEFAULT_WAIT_TIMEOUT_MS = 10000;
++export const SMARTFILL_DEFAULT_KEYPAD_DELAY_MS = 150;
++export const SMARTFILL_MAX_KEYPAD_DELAY_MS = 2000;
++
++/** Step kinds, in the order the connector checks them. */
++export const SMARTFILL_STEP_KINDS = ["fill", "keypad", "click", "wait", "press"] as const;
++export type SmartfillStepKind = (typeof SMARTFILL_STEP_KINDS)[number];
++
++/** Keys a `press` step may press. */
++export const SMARTFILL_PRESS_KEYS = ["enter", "tab", "escape", "space"] as const;
++export type SmartfillPressKey = (typeof SMARTFILL_PRESS_KEYS)[number];
++
++/** One step as written by the user (JSON). */
++export type SmartfillRecipeStep = {
++  fill?: unknown;
++  into?: unknown;
++  keypad?: unknown;
++  keys?: unknown;
++  click?: unknown;
++  wait?: unknown;
++  press?: unknown;
++  optional?: unknown;
++  timeout?: unknown;
++  delay?: unknown;
++};
++
++/**
++ * A step reduced to what the page needs. `value` holds the secret for `fill` and `keypad`
++ * steps and the key name for `press` steps; it never leaves the extension except into the page.
++ */
++export type SmartfillResolvedStep = {
++  kind: SmartfillStepKind;
++  /** CSS selector for fill (`into`), keypad (`keys`), click and wait (selector form). */
++  selector?: string;
++  value?: string;
++  /** What the step types, for messages: `username`, `password`, `totp`, `field`, `text`. */
++  valueKind?: string;
++  /** `wait` with a number: how long to pause. */
++  pauseMs?: number;
++  optional: boolean;
++  timeoutMs: number;
++  /** keypad only: pause between key presses. */
++  delayMs: number;
++};
++
++export type SmartfillRecipe = { steps: SmartfillRecipeStep[] };
++export type SmartfillRecipeParseResult = SmartfillRecipe | { error: string } | null;
++
++/** True for the custom field that holds the recipe (case- and accent-insensitive). */
++export function isSmartfillRecipeFieldName(name: unknown): boolean {
++  return smartfillFoldText(name) === SMARTFILL_RECIPE_FIELD_NAME;
++}
++
++/** Returns the step's kind, or "" when the step is not one of the five kinds. */
++export function smartfillStepKind(step: unknown): SmartfillStepKind | "" {
++  if (!step || typeof step !== "object" || Array.isArray(step)) {
++    return "";
++  }
++  const record = step as Record<string, unknown>;
++  return SMARTFILL_STEP_KINDS.find((kind) => record[kind] !== undefined) ?? "";
++}
++
++/**
++ * Finds and parses the cipher's recipe field.
++ *
++ * @returns `null` when the login has no (non-empty) recipe field, `{ error }` when the field is
++ * there but cannot be used, else the steps.
++ */
++export function parseSmartfillRecipe(
++  cipher: CipherView | null | undefined,
++): SmartfillRecipeParseResult {
++  if (!cipher || cipher.type !== CipherType.Login) {
++    return null;
++  }
++  const field = (cipher.fields ?? []).find((f) => isSmartfillRecipeFieldName(f?.name));
++  const raw = field?.value;
++  if (!field || raw == null || !String(raw).trim()) {
++    return null;
++  }
++
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(String(raw));
++  } catch (error) {
++    return { error: `it is not valid JSON (${(error as Error)?.message ?? "parse error"})` };
++  }
++
++  const steps = Array.isArray(parsed) ? parsed : (parsed as { steps?: unknown } | null)?.steps;
++  if (!Array.isArray(steps) || !steps.length) {
++    return { error: 'it has no "steps" list' };
++  }
++  if (steps.length > SMARTFILL_MAX_RECIPE_STEPS) {
++    return { error: `it has more than ${SMARTFILL_MAX_RECIPE_STEPS} steps` };
++  }
++  const bad = steps.findIndex((step) => !smartfillStepKind(step));
++  if (bad >= 0) {
++    return { error: `step ${bad + 1} is not one of fill, click, wait, keypad, press` };
++  }
++
++  for (let index = 0; index < steps.length; index++) {
++    const problem = describeStepProblem(steps[index] as SmartfillRecipeStep);
++    if (problem) {
++      return { error: `step ${index + 1} ${problem}` };
++    }
++  }
++
++  return { steps: steps as SmartfillRecipeStep[] };
++}
++
++/** True when the login carries a recipe field, valid or not. */
++export function smartfillHasRecipe(cipher: CipherView | null | undefined): boolean {
++  return parseSmartfillRecipe(cipher) !== null;
++}
++
++/**
++ * Shape checks the connector only discovers while running a step. Checking them up front means
++ * a broken recipe never runs halfway.
++ */
++function describeStepProblem(step: SmartfillRecipeStep): string | null {
++  const kind = smartfillStepKind(step);
++  const isText = (value: unknown) => typeof value === "string" && value.trim().length > 0;
++  switch (kind) {
++    case "fill":
++      return isText(step.into) ? null : 'needs an "into" selector';
++    case "keypad":
++      return isText(step.keys) ? null : 'needs a "keys" selector';
++    case "click":
++      return isText(step.click) ? null : "needs a selector to click";
++    case "wait":
++      return isText(step.wait) || typeof step.wait === "number"
++        ? null
++        : "needs a selector or a number of milliseconds";
++    case "press":
++      return SMARTFILL_PRESS_KEYS.includes(
++        String(step.press ?? "").toLowerCase() as SmartfillPressKey,
++      )
++        ? null
++        : `presses an unknown key "${String(step.press)}" (use Enter, Tab, Escape or Space)`;
++    default:
++      return "is not one of fill, click, wait, keypad, press";
++  }
++}
++
++/** The step's own timeout: `timeout` ms if given, else 10 s for `wait` and 5 s otherwise, at most 30 s. */
++export function smartfillStepTimeout(step: SmartfillRecipeStep): number {
++  const kind = smartfillStepKind(step);
++  const requested = Number(step.timeout);
++  const base =
++    requested && Number.isFinite(requested)
++      ? requested
++      : kind === "wait"
++        ? SMARTFILL_DEFAULT_WAIT_TIMEOUT_MS
++        : SMARTFILL_DEFAULT_TIMEOUT_MS;
++  return Math.min(Math.max(base, 0), SMARTFILL_MAX_TIMEOUT_MS);
++}
++
++/**
++ * The custom fields that act as extra login fields: named, not the recipe, not linked, with a
++ * value. Same filter as the connector's `customFields`.
++ */
++export function smartfillExtraFields(
++  cipher: CipherView,
++): { name: string; value: string; type: FieldType }[] {
++  return (cipher.fields ?? [])
++    .filter(
++      (f) =>
++        f &&
++        f.name &&
++        !isSmartfillRecipeFieldName(f.name) &&
++        f.type !== FieldType.Linked &&
++        f.value != null &&
++        f.value !== "",
++    )
++    .map((f) => ({ name: String(f.name), value: String(f.value), type: f.type }));
++}
++
++/**
++ * What a `fill` or `keypad` step types: `username`, `password`, `totp`, `field:<custom field name>`
++ * or `text:<literal>`.
++ *
++ * @param getTotpCode Returns the current code, or `null` when it may not be computed (for example,
++ * no Premium). Only called for `totp`.
++ */
++export async function resolveSmartfillValue(
++  cipher: CipherView,
++  ref: unknown,
++  getTotpCode: () => Promise<{ code?: string | null; error?: string }>,
++): Promise<{ value: string; kind: string } | { error: string }> {
++  const r = String(ref ?? "");
++  if (r === "username") {
++    return cipher.login?.username
++      ? { value: cipher.login.username, kind: "username" }
++      : { error: "the login has no username" };
++  }
++  if (r === "password") {
++    return cipher.login?.password
++      ? { value: cipher.login.password, kind: "password" }
++      : { error: "the login has no password" };
++  }
++  if (r === "totp") {
++    if (!cipher.login?.totp) {
++      return { error: "the login has no authenticator key" };
++    }
++    const totp = await getTotpCode();
++    if (totp.error || !totp.code) {
++      return { error: totp.error ?? "the authenticator code could not be computed" };
++    }
++    return { value: totp.code, kind: "totp" };
++  }
++  if (r.startsWith("field:")) {
++    const wanted = smartfillFoldText(r.slice(6));
++    const field = smartfillExtraFields(cipher).find((f) => smartfillFoldText(f.name) === wanted);
++    return field
++      ? { value: field.value, kind: "field" }
++      : { error: `the login has no custom field "${r.slice(6)}"` };
++  }
++  if (r.startsWith("text:")) {
++    return { value: r.slice(5), kind: "text" };
++  }
++  return {
++    error: `"${r}" is not a value (use username, password, totp, field:<name> or text:<words>)`,
++  };
++}
++
++/** The selector a step acts on, if any (used to pick the frame that runs the recipe). */
++export function smartfillStepSelector(step: SmartfillRecipeStep): string | null {
++  const kind = smartfillStepKind(step);
++  const selector =
++    kind === "fill"
++      ? step.into
++      : kind === "keypad"
++        ? step.keys
++        : kind === "click"
++          ? step.click
++          : kind === "wait" && typeof step.wait === "string"
++            ? step.wait
++            : null;
++  return typeof selector === "string" && selector.trim() ? selector.trim() : null;
++}
++
++/**
++ * Resolves every step's value before anything runs, so a recipe that references a missing field
++ * never runs halfway.
++ */
++export async function resolveSmartfillSteps(
++  cipher: CipherView,
++  steps: SmartfillRecipeStep[],
++  getTotpCode: () => Promise<{ code?: string | null; error?: string }>,
++): Promise<{ steps: SmartfillResolvedStep[] } | { error: string; step: number }> {
++  const resolved: SmartfillResolvedStep[] = [];
++  let totpCache: Promise<{ code?: string | null; error?: string }> | null = null;
++  const totpOnce = () => (totpCache ??= getTotpCode());
++
++  for (let index = 0; index < steps.length; index++) {
++    const step = steps[index];
++    const kind = smartfillStepKind(step) as SmartfillStepKind;
++    const base: SmartfillResolvedStep = {
++      kind,
++      optional: step.optional === true,
++      timeoutMs: smartfillStepTimeout(step),
++      delayMs: SMARTFILL_DEFAULT_KEYPAD_DELAY_MS,
++    };
++
++    if (kind === "fill" || kind === "keypad") {
++      const value = await resolveSmartfillValue(cipher, step[kind], totpOnce);
++      if ("error" in value) {
++        return { error: value.error, step: index + 1 };
++      }
++      const requestedDelay = Number(step.delay);
++      resolved.push({
++        ...base,
++        selector: smartfillStepSelector(step) ?? undefined,
++        value: value.value,
++        valueKind: value.kind,
++        delayMs:
++          kind === "keypad" && Number.isFinite(requestedDelay) && step.delay !== undefined
++            ? Math.min(Math.max(requestedDelay, 0), SMARTFILL_MAX_KEYPAD_DELAY_MS)
++            : SMARTFILL_DEFAULT_KEYPAD_DELAY_MS,
++      });
++      continue;
++    }
++
++    if (kind === "wait" && typeof step.wait === "number") {
++      resolved.push({
++        ...base,
++        pauseMs: Math.min(Math.max(step.wait, 0), SMARTFILL_MAX_TIMEOUT_MS),
++      });
++      continue;
++    }
++
++    if (kind === "press") {
++      resolved.push({ ...base, value: String(step.press).toLowerCase() });
++      continue;
++    }
++
++    resolved.push({ ...base, selector: smartfillStepSelector(step) ?? undefined });
++  }
++
++  return { steps: resolved };
++}
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.spec.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.spec.ts
+new file mode 100644
+index 0000000..21021df
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.spec.ts
+@@ -0,0 +1,324 @@
++import { SmartfillCommand, SmartfillRunMessage } from "./smartfill-messages";
++import type { SmartfillResolvedStep } from "./smartfill-recipe-format";
++import { SmartfillRecipeRunner } from "./smartfill-recipe-runner";
++
++type SentMessage = { command: string; options?: Record<string, any> };
++
++function step(partial: Partial<SmartfillResolvedStep>): SmartfillResolvedStep {
++  return { kind: "click", optional: false, timeoutMs: 600, delayMs: 0, ...partial };
++}
++
++describe("SmartfillRecipeRunner", () => {
++  let sent: SentMessage[];
++  let runner: SmartfillRecipeRunner;
++  const fillElement = jest.fn((element: HTMLElement, value: string) => {
++    (element as HTMLInputElement).value = value;
++    element.dispatchEvent(new Event("input", { bubbles: true }));
++    element.dispatchEvent(new Event("change", { bubbles: true }));
++  });
++
++  const progress = () =>
++    sent
++      .filter((message) => message.command === SmartfillCommand.progress)
++      .map((message) => `${message.options?.index}:${message.options?.phase}`);
++
++  const waitForEnd = async (runId: string, timeout = 8000) => {
++    const deadline = Date.now() + timeout;
++    while (Date.now() < deadline) {
++      const ended = sent.find(
++        (message) =>
++          message.command === SmartfillCommand.progress &&
++          message.options?.runId === runId &&
++          ["finished", "failed"].includes(message.options?.phase),
++      );
++      if (ended) {
++        // Let the run's finally block clear the filling flag.
++        await new Promise((resolve) => setTimeout(resolve, 20));
++        return ended.options;
++      }
++      await new Promise((resolve) => setTimeout(resolve, 20));
++    }
++    throw new Error("run did not end");
++  };
++
++  const run = (runId: string, steps: SmartfillResolvedStep[], startAt = 0) =>
++    runner.start({
++      command: SmartfillCommand.run,
++      runId,
++      steps,
++      startAt,
++      expectedUrl: globalThis.location.href,
++    } as SmartfillRunMessage);
++
++  beforeAll(() => {
++    // jsdom has no layout: give every element a visible box unless it is display:none.
++    jest.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
++      this: Element,
++    ) {
++      const hidden = (this as HTMLElement).style?.display === "none";
++      const size = hidden ? 0 : 20;
++      return {
++        x: 0,
++        y: 0,
++        top: 0,
++        left: 0,
++        right: size,
++        bottom: size,
++        width: size,
++        height: size,
++        toJSON: () => ({}),
++      } as DOMRect;
++    });
++    Element.prototype.scrollIntoView = jest.fn();
++  });
++
++  beforeEach(() => {
++    sent = [];
++    fillElement.mockClear();
++    runner = new SmartfillRecipeRunner(fillElement, async (command, options) => {
++      sent.push({ command, options });
++    });
++    document.body.innerHTML = "";
++    document.querySelectorAll("bitwarden-smartfill-notice").forEach((notice) => notice.remove());
++  });
++
++  it("finds visible targets when probed, and never throws on a bad selector", () => {
++    document.body.innerHTML = `<input id="user"><input id="gone" style="display:none">`;
++    expect(runner.probe("#user")).toBe(true);
++    expect(runner.probe("#gone")).toBe(false);
++    expect(runner.probe("##")).toBe(false);
++  });
++
++  it("refuses a run aimed at another origin", () => {
++    expect(
++      runner.start({
++        command: SmartfillCommand.run,
++        runId: "x",
++        steps: [step({ selector: "#a" })],
++        startAt: 0,
++        expectedUrl: "https://evil.example/",
++      }),
++    ).toEqual({ accepted: false });
++  });
++
++  it("runs a two-step sign-in with a shuffled keypad and a final Enter", async () => {
++    document.body.innerHTML = `
++      <form id="login">
++        <input id="user" name="user">
++        <button type="button" id="next">Suivant</button>
++        <input id="pw" type="password" readonly style="display:none">
++        <div class="keypad" style="display:none"></div>
++        <button type="submit" id="go">Valider</button>
++      </form>`;
++    const keypad = document.querySelector(".keypad") as HTMLElement;
++    const pw = document.querySelector("#pw") as HTMLInputElement;
++    const shuffled = ["7", "3", "0", "9", "1", "5", "2", "8", "4", "6"];
++    shuffled.forEach((digit) => {
++      const key = document.createElement("button");
++      key.type = "button";
++      key.setAttribute("aria-label", `Touche ${digit}`);
++      key.addEventListener("click", () => (pw.value += digit));
++      keypad.append(key);
++    });
++    document.querySelector("#next")!.addEventListener("click", () => {
++      setTimeout(() => {
++        pw.style.display = "";
++        keypad.style.display = "";
++      }, 100);
++    });
++    const submitted = jest.fn((event: Event) => event.preventDefault());
++    document.querySelector("#login")!.addEventListener("submit", submitted);
++
++    expect(
++      run("run-1", [
++        step({ kind: "fill", selector: "#user", value: "jdoe" }),
++        step({ kind: "click", selector: "#next" }),
++        step({ kind: "wait", selector: "#pw" }),
++        step({ kind: "keypad", selector: ".keypad button", value: "2468" }),
++        // Like a real click, the last key press left the focus on that key: move it back to the
++        // field, where Enter submits the form through its submit button.
++        step({ kind: "click", selector: "#pw" }),
++        step({ kind: "press", value: "enter" }),
++      ]),
++    ).toEqual({ accepted: true });
++
++    const end = await waitForEnd("run-1");
++
++    expect(end?.phase).toBe("finished");
++    expect((document.querySelector("#user") as HTMLInputElement).value).toBe("jdoe");
++    expect(pw.value).toBe("2468");
++    expect(submitted).toHaveBeenCalledTimes(1);
++    expect(progress()).toEqual(
++      expect.arrayContaining(["0:start", "0:acting", "0:done", "1:acting", "3:acting", "5:done"]),
++    );
++    expect(
++      sent
++        .filter((m) => m.command === "updateIsFieldCurrentlyFilling")
++        .map((m) => m.options?.isFieldCurrentlyFilling),
++    ).toEqual([true, false]);
++  });
++
++  it("reads keys from <li> text without treating every item as 0", async () => {
++    document.body.innerHTML = `<ul class="pad"><li>1</li><li>0</li><li>2</li></ul><input id="code">`;
++    const code = document.querySelector("#code") as HTMLInputElement;
++    document
++      .querySelectorAll(".pad li")
++      .forEach((key) => key.addEventListener("click", () => (code.value += key.textContent)));
++    run("run-li", [step({ kind: "keypad", selector: ".pad li", value: "201" })]);
++    expect((await waitForEnd("run-li"))?.phase).toBe("finished");
++    expect(code.value).toBe("201");
++  });
++
++  it("matches keys by data-value and image alt", async () => {
++    document.body.innerHTML = `<div class="pad">
++      <span data-value="4"></span><a class="k"><img alt="9" src="data:,"></a></div><input id="code">`;
++    const code = document.querySelector("#code") as HTMLInputElement;
++    document
++      .querySelector("[data-value='4']")!
++      .addEventListener("mousedown", () => (code.value += "4"));
++    document.querySelector("a.k")!.addEventListener("mousedown", () => (code.value += "9"));
++    run("run-alt", [step({ kind: "keypad", selector: ".pad span, .pad a", value: "49" })]);
++    expect((await waitForEnd("run-alt"))?.phase).toBe("finished");
++    expect(code.value).toBe("49");
++  });
++
++  it("stops with a notice when a key is missing, without naming the character", async () => {
++    document.body.innerHTML = `<div class="pad"><button>1</button><button>2</button></div>`;
++    run("run-miss", [
++      step({ kind: "keypad", selector: ".pad button", value: "12x", timeoutMs: 300 }),
++    ]);
++    const end = await waitForEnd("run-miss");
++    expect(end?.phase).toBe("failed");
++    expect(end?.error).toBe(
++      'the keypad ".pad button" has no key for one of the characters (keys may be images without labels)',
++    );
++    expect(end?.error).not.toContain("x");
++    expect(document.querySelector("bitwarden-smartfill-notice")).not.toBeNull();
++  });
++
++  it("skips optional steps whose element never shows up", async () => {
++    document.body.innerHTML = `<input id="otp">`;
++    run("run-opt", [
++      step({ kind: "fill", selector: "#absent", value: "123456", optional: true, timeoutMs: 250 }),
++      step({ kind: "fill", selector: "#otp", value: "654321" }),
++    ]);
++    expect((await waitForEnd("run-opt"))?.phase).toBe("finished");
++    expect(progress()).toContain("0:skipped");
++    expect((document.querySelector("#otp") as HTMLInputElement).value).toBe("654321");
++  });
++
++  it("chooses drop-down options by text and ticks checkboxes", async () => {
++    document.body.innerHTML = `
++      <select id="pays"><option value="">--</option><option value="FR">France</option><option value="BE">Belgique</option></select>
++      <input type="checkbox" id="remember">`;
++    run("run-choice", [
++      step({ kind: "fill", selector: "#pays", value: "france" }),
++      step({ kind: "fill", selector: "#remember", value: "true" }),
++    ]);
++    expect((await waitForEnd("run-choice"))?.phase).toBe("finished");
++    expect((document.querySelector("#pays") as HTMLSelectElement).value).toBe("FR");
++    expect((document.querySelector("#remember") as HTMLInputElement).checked).toBe(true);
++  });
++
++  it("reaches into open shadow roots", async () => {
++    const host = document.createElement("game-login");
++    document.body.append(host);
++    const shadow = host.attachShadow({ mode: "open" });
++    shadow.innerHTML = `<input id="pilot">`;
++    run("run-shadow", [step({ kind: "fill", selector: "#pilot", value: "ace" })]);
++    expect((await waitForEnd("run-shadow"))?.phase).toBe("finished");
++    expect((shadow.querySelector("#pilot") as HTMLInputElement).value).toBe("ace");
++  });
++
++  it("refuses to type into read-only fields", async () => {
++    document.body.innerHTML = `<input id="pw" readonly>`;
++    run("run-ro", [step({ kind: "fill", selector: "#pw", value: "secret" })]);
++    const end = await waitForEnd("run-ro");
++    expect(end?.phase).toBe("failed");
++    expect(end?.error).toMatch(/read-only/);
++    expect((document.querySelector("#pw") as HTMLInputElement).value).toBe("");
++  });
++
++  it("falls back to key-by-key typing when the page rejects a direct value", async () => {
++    document.body.innerHTML = `<input id="game">`;
++    const game = document.querySelector("#game") as HTMLInputElement;
++    // A widget that undoes programmatic changes but accepts typed characters.
++    let typed = "";
++    game.addEventListener(
++      "keydown",
++      (event) =>
++        (typed += (event as KeyboardEvent).key.length === 1 ? (event as KeyboardEvent).key : ""),
++    );
++    game.addEventListener("input", () => {
++      if (game.value !== typed) {
++        game.value = typed;
++      }
++    });
++    const rejecting = new SmartfillRecipeRunner(
++      (element, value) => {
++        (element as HTMLInputElement).value = value;
++        element.dispatchEvent(new Event("input", { bubbles: true }));
++      },
++      async (command, options) => {
++        sent.push({ command, options });
++      },
++    );
++    rejecting.start({
++      command: SmartfillCommand.run,
++      runId: "run-game",
++      steps: [step({ kind: "fill", selector: "#game", value: "Pl4yer" })],
++      startAt: 0,
++      expectedUrl: globalThis.location.href,
++    } as SmartfillRunMessage);
++    expect((await waitForEnd("run-game"))?.phase).toBe("finished");
++    expect(game.value).toBe("Pl4yer");
++  });
++
++  it("keeps running when the background resumes it in the same document", async () => {
++    document.body.innerHTML = `<input id="a">`;
++    run("first", [
++      step({ kind: "wait", pauseMs: 300 }),
++      step({ kind: "fill", selector: "#a", value: "once" }),
++    ]);
++    expect(
++      runner.start({
++        command: SmartfillCommand.run,
++        runId: "second",
++        steps: [step({ kind: "fill", selector: "#a", value: "twice" })],
++        startAt: 0,
++        resume: true,
++        expectedUrl: globalThis.location.href,
++      }),
++    ).toEqual({ accepted: true });
++    // The original steps finish, reported under the new run id.
++    expect((await waitForEnd("second"))?.phase).toBe("finished");
++    expect((document.querySelector("#a") as HTMLInputElement).value).toBe("once");
++  });
++
++  it("accepts values that the page reformats while typing", async () => {
++    document.body.innerHTML = `<input id="spi">`;
++    const spi = document.querySelector("#spi") as HTMLInputElement;
++    spi.addEventListener("input", () => {
++      const digits = spi.value.replace(/\D/g, "");
++      spi.value = digits
++        .replace(/^(\d{2})(\d{2})(\d{3})(\d{3})(\d{0,3}).*/, "$1 $2 $3 $4 $5")
++        .trim();
++    });
++    run("run-mask", [step({ kind: "fill", selector: "#spi", value: "1234567890123" })]);
++    expect((await waitForEnd("run-mask"))?.phase).toBe("finished");
++    expect(spi.value).toBe("12 34 567 890 123");
++  });
++
++  it("lets a new run replace the running one", async () => {
++    document.body.innerHTML = `<input id="a">`;
++    run("old", [step({ kind: "wait", selector: "#never", timeoutMs: 3000 })]);
++    run("new", [step({ kind: "fill", selector: "#a", value: "new" })]);
++    expect((await waitForEnd("new"))?.phase).toBe("finished");
++    await new Promise((resolve) => setTimeout(resolve, 300));
++    expect(
++      sent.some(
++        (m) => m.options?.runId === "old" && ["finished", "failed"].includes(m.options?.phase),
++      ),
++    ).toBe(false);
++  });
++});
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts
+new file mode 100644
+index 0000000..ddfa703
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts
+@@ -0,0 +1,925 @@
++/**
++ * Smartfill fork — runs a login's saved entry steps ("grokbot:recipe") inside one frame.
++ *
++ * Runs as part of the autofill content script (no Angular, direct `chrome.*` use). The background
++ * resolves the values, checks the frame against the login's saved addresses and picks the frame;
++ * this class only acts on the page. Each step reports its progress so that, when a click or key
++ * press loads a new page, the background can resume on that page (after checking it again).
++ *
++ * Same step semantics as the Grok Bot connector (`docs/recipes.md`). The one
++ * unavoidable difference: an extension can only dispatch synthetic (untrusted) mouse and keyboard
++ * events, so pages that insist on `event.isTrusted` will ignore clicks and key presses.
++ */
++import {
++  SmartfillCommand,
++  SmartfillProgressPhase,
++  SmartfillRunMessage,
++} from "./smartfill-messages";
++import type { SmartfillResolvedStep } from "./smartfill-recipe-format";
++import { smartfillFoldText, smartfillIsTruthy } from "./smartfill-text";
++
++const LOG_PREFIX = "[Bitwarden Smartfill]";
++const POLL_INTERVAL_MS = 200;
++const SETTLE_DELAY_MS = 250;
++const SETTLE_TIMEOUT_MS = 10000;
++const SETTLE_POLL_MS = 150;
++/** How long a run that saw `beforeunload` waits for the page to actually go away. */
++const NAVIGATION_GRACE_MS = 20000;
++const FILL_VERIFY_DELAY_MS = 30;
++const NOTICE_DURATION_MS = 9000;
++
++type ActiveRun = { runId: string; cancelled: boolean };
++
++type StepOutcome =
++  | { status: "ok"; skipped?: boolean }
++  | { status: "error"; error: string }
++  /** The page started to unload while the step ran. */
++  | { status: "navigating"; acted: boolean };
++
++const KEY_DEFINITIONS: Record<string, { key: string; code: string; keyCode: number }> = {
++  enter: { key: "Enter", code: "Enter", keyCode: 13 },
++  tab: { key: "Tab", code: "Tab", keyCode: 9 },
++  escape: { key: "Escape", code: "Escape", keyCode: 27 },
++  space: { key: " ", code: "Space", keyCode: 32 },
++};
++
++const FOCUSABLE_SELECTOR = [
++  "a[href]",
++  "button",
++  "input:not([type=hidden])",
++  "select",
++  "textarea",
++  "[tabindex]",
++  "[contenteditable=''], [contenteditable=true]",
++].join(", ");
++
++type ElementFiller = (element: HTMLElement, value: string, showAnimations?: boolean) => void;
++type MessageSender = (command: string, options?: Record<string, unknown>) => Promise<unknown>;
++
++export class SmartfillRecipeRunner {
++  private activeRun: ActiveRun | null = null;
++  private navigationStarted = false;
++  private showAnimations = true;
++
++  /**
++   * @param fillElement Bitwarden's own value insertion (click, focus, key and input events).
++   * @param sendMessage Sends a runtime message to the background.
++   */
++  constructor(
++    private readonly fillElement: ElementFiller,
++    private readonly sendMessage: MessageSender,
++  ) {}
++
++  /** True when a visible element matching the selector is in this frame. */
++  probe(selector: string): boolean {
++    try {
++      return this.collect(selector).some((element) => this.isShown(element));
++    } catch {
++      return false;
++    }
++  }
++
++  /** Starts (or resumes) a run. Answers at once; the steps run afterwards. */
++  start(message: SmartfillRunMessage): { accepted: boolean } {
++    if (!message?.runId || !Array.isArray(message.steps) || !this.isOnOrigin(message.expectedUrl)) {
++      return { accepted: false };
++    }
++
++    if (message.resume && this.activeRun && !this.activeRun.cancelled) {
++      // The page load the background saw was not a new document for this frame (for example the
++      // fill started while the page was still loading): keep the run going under its new id.
++      this.activeRun.runId = message.runId;
++      return { accepted: true };
++    }
++
++    if (this.activeRun) {
++      this.activeRun.cancelled = true;
++    }
++    const run: ActiveRun = { runId: message.runId, cancelled: false };
++    this.activeRun = run;
++    this.navigationStarted = false;
++    this.showAnimations = message.showAnimations ?? true;
++    void this.execute(run, message).catch((error) =>
++      this.logWarning(`the steps stopped: ${this.describeError(error)}`),
++    );
++    return { accepted: true };
++  }
++
++  /** Stops the active run (or only the given run). */
++  cancel(runId?: string): void {
++    if (this.activeRun && (!runId || this.activeRun.runId === runId)) {
++      this.activeRun.cancelled = true;
++    }
++  }
++
++  /** Shows a short notice in the corner of the page (used for recipe errors). */
++  showNotice(text: string, expectedUrl?: string): void {
++    if (expectedUrl && !this.isOnOrigin(expectedUrl)) {
++      return;
++    }
++    this.logWarning(text);
++    const body = globalThis.document?.documentElement;
++    if (!body) {
++      return;
++    }
++
++    const host = globalThis.document.createElement("bitwarden-smartfill-notice");
++    host.style.setProperty("all", "initial");
++    host.style.setProperty("position", "fixed");
++    host.style.setProperty("z-index", "2147483647");
++    host.style.setProperty("right", "16px");
++    host.style.setProperty("bottom", "16px");
++    host.style.setProperty("max-width", "min(420px, calc(100vw - 32px))");
++
++    const root = host.attachShadow({ mode: "closed" });
++    const box = globalThis.document.createElement("div");
++    box.setAttribute("role", "status");
++    const title = globalThis.document.createElement("strong");
++    title.textContent = "Bitwarden Smartfill";
++    const message = globalThis.document.createElement("div");
++    message.textContent = text;
++    box.append(title, message);
++    const style = box.style;
++    style.setProperty("font", "13px/1.4 system-ui, -apple-system, Segoe UI, sans-serif");
++    style.setProperty("color", "#1b2029");
++    style.setProperty("background", "#fff8e6");
++    style.setProperty("border", "1px solid #e0b252");
++    style.setProperty("border-left", "4px solid #c98a00");
++    style.setProperty("border-radius", "8px");
++    style.setProperty("padding", "10px 12px");
++    style.setProperty("box-shadow", "0 6px 24px rgba(0,0,0,.18)");
++    style.setProperty("cursor", "pointer");
++    style.setProperty("display", "grid");
++    style.setProperty("gap", "2px");
++    root.append(box);
++
++    const remove = () => host.remove();
++    box.addEventListener("click", remove);
++    body.append(host);
++    setTimeout(remove, NOTICE_DURATION_MS);
++  }
++
++  private async execute(run: ActiveRun, message: SmartfillRunMessage): Promise<void> {
++    const { steps } = message;
++    const startAt = Math.max(0, Math.min(Number(message.startAt) || 0, steps.length));
++    if (startAt >= steps.length) {
++      this.report(run, steps.length - 1, "finished");
++      return;
++    }
++
++    if (message.confirmInsecure && !this.userConfirmsInsecureFill()) {
++      this.report(run, startAt, "failed", "cancelled on an insecure (http) page");
++      return;
++    }
++
++    this.watchNavigation(true);
++    await this.setFillingFlag(true);
++    try {
++      let index = startAt;
++      while (index < steps.length) {
++        if (run.cancelled) {
++          return;
++        }
++
++        const step = steps[index];
++        this.report(run, index, "start");
++        let outcome: StepOutcome;
++        try {
++          outcome = await this.runStep(run, index, step);
++        } catch (error) {
++          outcome = { status: "error", error: this.describeError(error) };
++        }
++        if (run.cancelled) {
++          return;
++        }
++
++        if (outcome.status === "navigating") {
++          // The page is going away; the background resumes on the next page. If the page is
++          // still here after the grace period, the navigation did not happen: carry on here.
++          if (!(await this.navigationGracePeriodPassed(run))) {
++            return;
++          }
++          if (!outcome.acted) {
++            continue;
++          }
++          this.report(run, index, "done");
++          index++;
++          continue;
++        }
++
++        if (outcome.status === "error") {
++          this.report(run, index, "failed", outcome.error);
++          this.showNotice(`Stopped at step ${index + 1} (${step.kind}): ${outcome.error}.`);
++          return;
++        }
++
++        this.report(run, index, outcome.skipped ? "skipped" : "done");
++        index++;
++      }
++      this.report(run, steps.length - 1, "finished");
++    } finally {
++      if (this.activeRun === run) {
++        this.activeRun = null;
++        this.watchNavigation(false);
++        await this.setFillingFlag(false);
++      }
++    }
++  }
++
++  private async runStep(
++    run: ActiveRun,
++    index: number,
++    step: SmartfillResolvedStep,
++  ): Promise<StepOutcome> {
++    switch (step.kind) {
++      case "wait":
++        return this.runWaitStep(run, step);
++      case "click":
++        return this.runClickStep(run, index, step);
++      case "press":
++        return this.runPressStep(run, index, step);
++      case "fill":
++        return this.runFillStep(run, index, step);
++      case "keypad":
++        return this.runKeypadStep(run, index, step);
++      default:
++        return { status: "error", error: `unknown step "${String((step as any)?.kind)}"` };
++    }
++  }
++
++  private async runWaitStep(run: ActiveRun, step: SmartfillResolvedStep): Promise<StepOutcome> {
++    if (typeof step.pauseMs === "number") {
++      await this.sleep(step.pauseMs, run);
++      return this.navigationStarted ? { status: "navigating", acted: false } : { status: "ok" };
++    }
++
++    const found = await this.waitForElement(run, step.selector ?? "", step.timeoutMs);
++    if (found.status !== "found") {
++      return this.missingOutcome(found, step, `"${step.selector}" did not appear`);
++    }
++    return { status: "ok" };
++  }
++
++  private async runClickStep(
++    run: ActiveRun,
++    index: number,
++    step: SmartfillResolvedStep,
++  ): Promise<StepOutcome> {
++    const found = await this.waitForElement(run, step.selector ?? "", step.timeoutMs);
++    if (found.status !== "found") {
++      return this.missingOutcome(found, step, `nothing to click matches "${step.selector}"`);
++    }
++
++    this.report(run, index, "acting");
++    this.dispatchClick(found.element);
++    return this.settle(run);
++  }
++
++  private async runPressStep(
++    run: ActiveRun,
++    index: number,
++    step: SmartfillResolvedStep,
++  ): Promise<StepOutcome> {
++    const definition = KEY_DEFINITIONS[String(step.value ?? "").toLowerCase()];
++    if (!definition) {
++      return {
++        status: "error",
++        error: `unknown key "${step.value}" (use Enter, Tab, Escape or Space)`,
++      };
++    }
++
++    this.report(run, index, "acting");
++    this.pressKey(definition);
++    return this.settle(run);
++  }
++
++  private async runFillStep(
++    run: ActiveRun,
++    index: number,
++    step: SmartfillResolvedStep,
++  ): Promise<StepOutcome> {
++    const found = await this.waitForElement(run, step.selector ?? "", step.timeoutMs);
++    if (found.status !== "found") {
++      return this.missingOutcome(found, step, `no field matches "${step.selector}"`);
++    }
++    if (!this.elementIsOnRunOrigin(found.element)) {
++      return {
++        status: "error",
++        error: "the field is not on the login's site, so nothing was typed",
++      };
++    }
++
++    this.report(run, index, "acting");
++    const error = await this.typeIntoElement(found.element, step.value ?? "");
++    return error ? { status: "error", error } : { status: "ok" };
++  }
++
++  private async runKeypadStep(
++    run: ActiveRun,
++    index: number,
++    step: SmartfillResolvedStep,
++  ): Promise<StepOutcome> {
++    const selector = step.selector ?? "";
++    let acted = false;
++
++    for (const character of Array.from(step.value ?? "")) {
++      const deadline = Date.now() + step.timeoutMs;
++      let key: Element | null = null;
++      let keyCount = 0;
++
++      for (;;) {
++        if (run.cancelled) {
++          return { status: "ok" };
++        }
++        if (this.navigationStarted) {
++          return { status: "navigating", acted };
++        }
++
++        let keys: Element[];
++        try {
++          keys = this.collect(selector).filter((element) => this.isShown(element));
++        } catch {
++          return { status: "error", error: `"${selector}" is not a valid CSS selector` };
++        }
++        keyCount = keys.length;
++        key = keys.find((candidate) => this.keyShows(candidate, character)) ?? null;
++        if (key || Date.now() >= deadline) {
++          break;
++        }
++        await this.sleep(POLL_INTERVAL_MS, run);
++      }
++
++      if (!key) {
++        // Never say which character was missing: that would reveal part of the secret.
++        return {
++          status: "error",
++          error: keyCount
++            ? `the keypad "${selector}" has no key for one of the characters (keys may be images without labels)`
++            : `no keypad keys match "${selector}"`,
++        };
++      }
++      if (!this.elementIsOnRunOrigin(key)) {
++        return { status: "error", error: "the keypad is not on the login's site" };
++      }
++
++      if (!acted) {
++        this.report(run, index, "acting");
++        acted = true;
++      }
++      this.dispatchClick(key);
++      await this.sleep(step.delayMs, run);
++    }
++
++    return this.navigationStarted ? { status: "navigating", acted: true } : { status: "ok" };
++  }
++
++  private missingOutcome(
++    found: { status: "missing" | "invalid" | "navigating" | "cancelled" },
++    step: SmartfillResolvedStep,
++    missingMessage: string,
++  ): StepOutcome {
++    switch (found.status) {
++      case "navigating":
++        return { status: "navigating", acted: false };
++      case "cancelled":
++        return { status: "ok" };
++      case "invalid":
++        return { status: "error", error: `"${step.selector}" is not a valid CSS selector` };
++      default:
++        return step.optional
++          ? { status: "ok", skipped: true }
++          : { status: "error", error: missingMessage };
++    }
++  }
++
++  /** Waits for the first visible element matching the selector. */
++  private async waitForElement(
++    run: ActiveRun,
++    selector: string,
++    timeoutMs: number,
++  ): Promise<
++    | { status: "found"; element: Element }
++    | { status: "missing" | "invalid" | "navigating" | "cancelled" }
++  > {
++    const deadline = Date.now() + timeoutMs;
++    for (;;) {
++      if (run.cancelled) {
++        return { status: "cancelled" };
++      }
++      if (this.navigationStarted) {
++        return { status: "navigating" };
++      }
++
++      let element: Element | undefined;
++      try {
++        element = this.collect(selector).find((candidate) => this.isShown(candidate));
++      } catch {
++        return { status: "invalid" };
++      }
++      if (element) {
++        return { status: "found", element };
++      }
++      if (Date.now() >= deadline) {
++        return { status: "missing" };
++      }
++      await this.sleep(POLL_INTERVAL_MS, run);
++    }
++  }
++
++  /**
++   * After a click or key press the page may navigate: wait a moment, then until the document has
++   * finished loading. Same as the connector's `settle`.
++   */
++  private async settle(run: ActiveRun): Promise<StepOutcome> {
++    await this.sleep(SETTLE_DELAY_MS, run);
++    const deadline = Date.now() + SETTLE_TIMEOUT_MS;
++    while (Date.now() < deadline) {
++      if (this.navigationStarted) {
++        return { status: "navigating", acted: true };
++      }
++      if (run.cancelled || globalThis.document.readyState === "complete") {
++        break;
++      }
++      await this.sleep(SETTLE_POLL_MS, run);
++    }
++    return this.navigationStarted ? { status: "navigating", acted: true } : { status: "ok" };
++  }
++
++  /**
++   * Collects matches for a CSS selector across this document, its shadow roots and its
++   * same-origin child frames (like the connector's `__collect`). Throws on an invalid selector.
++   */
++  private collect(selector: string): Element[] {
++    const found: Element[] = [];
++    const visitedDocuments = new Set<Document>();
++
++    const walk = (root: Document | ShadowRoot) => {
++      root.querySelectorAll(selector).forEach((element) => found.push(element));
++      root.querySelectorAll("*").forEach((element) => {
++        const shadowRoot = this.getShadowRoot(element);
++        if (shadowRoot) {
++          walk(shadowRoot);
++        }
++      });
++    };
++
++    const visitDocument = (doc: Document) => {
++      if (visitedDocuments.has(doc)) {
++        return;
++      }
++      visitedDocuments.add(doc);
++      walk(doc);
++      doc.querySelectorAll("iframe, frame").forEach((frame) => {
++        let childDocument: Document | null = null;
++        try {
++          childDocument = (frame as HTMLIFrameElement).contentDocument;
++        } catch {
++          childDocument = null;
++        }
++        if (childDocument) {
++          visitDocument(childDocument);
++        }
++      });
++    };
++
++    visitDocument(globalThis.document);
++    return found;
++  }
++
++  private getShadowRoot(element: Element): ShadowRoot | null {
++    if (element.shadowRoot) {
++      return element.shadowRoot;
++    }
++    // Closed roots, only on custom elements (the check is costly).
++    if (!element.tagName.includes("-")) {
++      return null;
++    }
++    try {
++      const dom = (globalThis as any).chrome?.dom;
++      if (dom?.openOrClosedShadowRoot) {
++        return dom.openOrClosedShadowRoot(element) ?? null;
++      }
++      return (element as any).openOrClosedShadowRoot ?? null;
++    } catch {
++      return null;
++    }
++  }
++
++  /** Visible: a real box, not `visibility: hidden`, not `display: none` (connector's `__shown`). */
++  private isShown(element: Element): boolean {
++    const rect = element.getBoundingClientRect();
++    const view = element.ownerDocument?.defaultView ?? globalThis.window;
++    const style = view.getComputedStyle(element);
++    return (
++      rect.width > 1 && rect.height > 1 && style.visibility !== "hidden" && style.display !== "none"
++    );
++  }
++
++  /**
++   * The characters a keypad key shows: `data-value`, `data-key`, `data-digit`, `aria-label`,
++   * `title`, the value of a button or input, its text, and the `alt` of the key or of an image
++   * inside it.
++   */
++  private keyLabels(element: Element): string[] {
++    const labels: unknown[] = [
++      element.getAttribute("data-value"),
++      element.getAttribute("data-key"),
++      element.getAttribute("data-digit"),
++      element.getAttribute("aria-label"),
++      element.getAttribute("title"),
++    ];
++    const tag = element.tagName.toLowerCase();
++    if (tag === "input" || tag === "button") {
++      labels.push((element as HTMLInputElement).value);
++    }
++    labels.push(element.textContent);
++    if (tag === "img" || tag === "input") {
++      labels.push(element.getAttribute("alt"));
++    }
++    const image = element.querySelector?.("img[alt]");
++    if (image) {
++      labels.push(image.getAttribute("alt"));
++    }
++    return labels.filter((label) => label != null).map((label) => String(label).trim());
++  }
++
++  /** A key shows the character when a label equals it, or ends with it as a word ("Touche 5"). */
++  private keyShows(element: Element, character: string): boolean {
++    return this.keyLabels(element).some(
++      (label) =>
++        label === character || (label.length > character.length && label.endsWith(" " + character)),
++    );
++  }
++
++  /**
++   * Types a value into a field: selects pick the option whose value or text matches, checkboxes
++   * follow true/false, text fields use Bitwarden's fill and fall back to typing key by key.
++   *
++   * @returns An error message, or null when the field took the value.
++   */
++  private async typeIntoElement(element: Element, value: string): Promise<string | null> {
++    const tag = element.tagName.toLowerCase();
++    (element as HTMLElement).scrollIntoView?.({ block: "center", inline: "nearest" });
++
++    if (tag === "select") {
++      return this.chooseOption(element as HTMLSelectElement, value);
++    }
++
++    const input = element as HTMLInputElement;
++    const type = String(input.type ?? "").toLowerCase();
++    if (tag === "input" && (type === "checkbox" || type === "radio")) {
++      const wanted = smartfillIsTruthy(value);
++      if (input.checked !== wanted) {
++        input.click();
++      }
++      return input.checked === wanted ? null : "the checkbox did not change";
++    }
++
++    if (tag === "input" || tag === "textarea") {
++      if (input.disabled || input.readOnly) {
++        return "the field is read-only or disabled (an on-screen keypad may need a keypad step)";
++      }
++      if (input.value) {
++        input.value = "";
++        input.dispatchEvent(new Event("input", { bubbles: true }));
++      }
++      this.fillElement(input, value, this.showAnimations);
++      await this.sleep(FILL_VERIFY_DELAY_MS);
++      if (!this.fieldHolds(input.value, value)) {
++        this.typeCharacters(input, value);
++        await this.sleep(FILL_VERIFY_DELAY_MS);
++      }
++      return this.fieldHolds(input.value, value)
++        ? null
++        : "the field did not take the value (the page may block automatic typing)";
++    }
++
++    // Anything else (contenteditable, custom widgets): Bitwarden's fill sets the text.
++    this.fillElement(element as HTMLElement, value, this.showAnimations);
++    await this.sleep(FILL_VERIFY_DELAY_MS);
++    const text = (element as HTMLElement).innerText ?? element.textContent ?? "";
++    return text.includes(value) ? null : "the element did not take the value";
++  }
++
++  /**
++   * Whether a field holds the value that was typed. Fields that format what is typed (a fiscal
++   * number shown as "12 34 567 890 123", a phone number, an IBAN) count as holding it when only
++   * spacing and punctuation differ.
++   */
++  private fieldHolds(actual: string, expected: string): boolean {
++    if (actual === expected) {
++      return true;
++    }
++    const strip = (text: string) => text.replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
++    const strippedExpected = strip(expected);
++    return strippedExpected.length > 0 && strip(actual) === strippedExpected;
++  }
++
++  private chooseOption(select: HTMLSelectElement, value: string): string | null {
++    const options = Array.from(select.options);
++    const option =
++      options.find((candidate) => candidate.value === value) ??
++      options.find((candidate) => smartfillFoldText(candidate.text) === smartfillFoldText(value));
++    if (!option) {
++      return "no option of the drop-down matches the value";
++    }
++    select.focus();
++    select.value = option.value;
++    select.dispatchEvent(new Event("input", { bubbles: true }));
++    select.dispatchEvent(new Event("change", { bubbles: true }));
++    return null;
++  }
++
++  /** Types key by key, for widgets that only listen to keyboard events. */
++  private typeCharacters(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
++    input.focus();
++    input.value = "";
++    for (const character of Array.from(value)) {
++      const keyInit: KeyboardEventInit = {
++        key: character,
++        bubbles: true,
++        cancelable: true,
++        composed: true,
++      };
++      input.dispatchEvent(new KeyboardEvent("keydown", keyInit));
++      input.dispatchEvent(
++        new KeyboardEvent("keypress", { ...keyInit, charCode: character.charCodeAt(0) }),
++      );
++      const accepted = input.dispatchEvent(
++        new InputEvent("beforeinput", {
++          inputType: "insertText",
++          data: character,
++          bubbles: true,
++          cancelable: true,
++          composed: true,
++        }),
++      );
++      if (accepted) {
++        input.value = input.value + character;
++      }
++      input.dispatchEvent(
++        new InputEvent("input", {
++          inputType: "insertText",
++          data: character,
++          bubbles: true,
++          composed: true,
++        }),
++      );
++      input.dispatchEvent(new KeyboardEvent("keyup", keyInit));
++    }
++    input.dispatchEvent(new Event("change", { bubbles: true }));
++  }
++
++  /** A mouse click as a page sees it: pointer and mouse down/up, then click, at the center. */
++  private dispatchClick(element: Element): void {
++    (element as HTMLElement).scrollIntoView?.({ block: "center", inline: "center" });
++    const rect = element.getBoundingClientRect();
++    const view = element.ownerDocument?.defaultView ?? globalThis.window;
++    const x = rect.left + rect.width / 2;
++    const y = rect.top + rect.height / 2;
++    const mouse: MouseEventInit = {
++      bubbles: true,
++      cancelable: true,
++      composed: true,
++      view,
++      clientX: x,
++      clientY: y,
++      screenX: x,
++      screenY: y,
++      button: 0,
++    };
++    const PointerEventConstructor = (view as any).PointerEvent ?? globalThis.PointerEvent;
++    const pointer = (type: string, buttons: number) => {
++      if (PointerEventConstructor) {
++        element.dispatchEvent(
++          new PointerEventConstructor(type, {
++            ...mouse,
++            buttons,
++            pointerId: 1,
++            pointerType: "mouse",
++            isPrimary: true,
++            width: 1,
++            height: 1,
++          }),
++        );
++      }
++    };
++
++    pointer("pointerover", 0);
++    element.dispatchEvent(new MouseEvent("mouseover", { ...mouse, buttons: 0 }));
++    pointer("pointerdown", 1);
++    element.dispatchEvent(new MouseEvent("mousedown", { ...mouse, buttons: 1, detail: 1 }));
++    if (element.matches?.(FOCUSABLE_SELECTOR)) {
++      (element as HTMLElement).focus?.({ preventScroll: true });
++    }
++    pointer("pointerup", 0);
++    element.dispatchEvent(new MouseEvent("mouseup", { ...mouse, buttons: 0, detail: 1 }));
++    element.dispatchEvent(new MouseEvent("click", { ...mouse, buttons: 0, detail: 1 }));
++  }
++
++  /** Presses a key on the focused element, with the default action a real key would have. */
++  private pressKey(definition: { key: string; code: string; keyCode: number }): void {
++    const target = this.deepActiveElement() ?? globalThis.document.body;
++    if (!target) {
++      return;
++    }
++    const init: KeyboardEventInit = {
++      key: definition.key,
++      code: definition.code,
++      keyCode: definition.keyCode,
++      which: definition.keyCode,
++      bubbles: true,
++      cancelable: true,
++      composed: true,
++    } as KeyboardEventInit;
++
++    const proceed = target.dispatchEvent(new KeyboardEvent("keydown", init));
++    if (definition.code === "Enter" || definition.code === "Space") {
++      target.dispatchEvent(
++        new KeyboardEvent("keypress", {
++          ...init,
++          charCode: definition.keyCode,
++        } as KeyboardEventInit),
++      );
++    }
++    if (proceed) {
++      this.runKeyDefaultAction(target, definition.code);
++    }
++    target.dispatchEvent(new KeyboardEvent("keyup", init));
++  }
++
++  private runKeyDefaultAction(target: Element, code: string): void {
++    const tag = target.tagName.toLowerCase();
++    const type = String((target as HTMLInputElement).type ?? "").toLowerCase();
++    const isButtonLike =
++      tag === "button" ||
++      (tag === "input" && ["button", "submit", "reset", "image"].includes(type)) ||
++      target.getAttribute("role") === "button";
++
++    if (code === "Enter") {
++      if (isButtonLike || (tag === "a" && target.hasAttribute("href"))) {
++        this.dispatchClick(target);
++        return;
++      }
++      const form = (target as HTMLInputElement).form;
++      if (tag === "input" && form) {
++        const submitter = Array.from(
++          form.querySelectorAll<HTMLElement>(
++            "button:not([type]), button[type=submit], input[type=submit], input[type=image]",
++          ),
++        ).find((button) => !(button as HTMLButtonElement).disabled);
++        if (submitter) {
++          this.dispatchClick(submitter);
++        } else if (typeof form.requestSubmit === "function") {
++          form.requestSubmit();
++        } else {
++          form.submit();
++        }
++      }
++      return;
++    }
++
++    if (code === "Space") {
++      if (isButtonLike || (tag === "input" && (type === "checkbox" || type === "radio"))) {
++        this.dispatchClick(target);
++      }
++      return;
++    }
++
++    if (code === "Tab") {
++      const doc = target.ownerDocument ?? globalThis.document;
++      const focusable = Array.from(doc.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
++        (element) =>
++          element.tabIndex >= 0 &&
++          !(element as HTMLButtonElement).disabled &&
++          this.isShown(element),
++      );
++      const position = focusable.indexOf(target as HTMLElement);
++      const next = focusable[position + 1] ?? focusable[0];
++      next?.focus();
++    }
++  }
++
++  private deepActiveElement(): Element | null {
++    let element: Element | null = globalThis.document.activeElement;
++    for (let depth = 0; element && depth < 20; depth++) {
++      const shadowActive = (element as HTMLElement).shadowRoot?.activeElement;
++      if (shadowActive) {
++        element = shadowActive;
++        continue;
++      }
++      const tag = element.tagName.toLowerCase();
++      if (tag === "iframe" || tag === "frame") {
++        let childActive: Element | null = null;
++        try {
++          childActive = (element as HTMLIFrameElement).contentDocument?.activeElement ?? null;
++        } catch {
++          childActive = null;
++        }
++        if (childActive) {
++          element = childActive;
++          continue;
++        }
++      }
++      break;
++    }
++    return element;
++  }
++
++  private isOnOrigin(expectedUrl: string | undefined): boolean {
++    try {
++      return (
++        !!expectedUrl &&
++        globalThis.location.origin !== "null" &&
++        new URL(expectedUrl).origin === globalThis.location.origin
++      );
++    } catch {
++      return false;
++    }
++  }
++
++  /** Elements reached through same-origin child frames must still share this frame's origin. */
++  private elementIsOnRunOrigin(element: Element): boolean {
++    const view = element.ownerDocument?.defaultView as (Window & { origin?: string }) | null;
++    const origin = view?.origin ?? element.ownerDocument?.location?.origin;
++    return origin === globalThis.location.origin;
++  }
++
++  private userConfirmsInsecureFill(): boolean {
++    if (globalThis.location.protocol !== "http:") {
++      return true;
++    }
++    const warning = [
++      chrome.i18n.getMessage("insecurePageWarning"),
++      chrome.i18n.getMessage("insecurePageWarningFillPrompt", [globalThis.location.hostname]),
++    ].join("\n\n");
++    return globalThis.confirm(warning);
++  }
++
++  private readonly handlePageLeaving = () => {
++    this.navigationStarted = true;
++    void this.setFillingFlag(false);
++  };
++
++  private watchNavigation(enabled: boolean): void {
++    if (enabled) {
++      globalThis.addEventListener("beforeunload", this.handlePageLeaving);
++      globalThis.addEventListener("pagehide", this.handlePageLeaving);
++      return;
++    }
++    globalThis.removeEventListener("beforeunload", this.handlePageLeaving);
++    globalThis.removeEventListener("pagehide", this.handlePageLeaving);
++  }
++
++  /** Waits for the page to go away. Returns true if it is still here afterwards. */
++  private async navigationGracePeriodPassed(run: ActiveRun): Promise<boolean> {
++    await this.sleep(NAVIGATION_GRACE_MS, run);
++    if (run.cancelled) {
++      return false;
++    }
++    this.navigationStarted = false;
++    await this.setFillingFlag(true);
++    return true;
++  }
++
++  private async setFillingFlag(isFieldCurrentlyFilling: boolean): Promise<void> {
++    try {
++      await this.sendMessage("updateIsFieldCurrentlyFilling", { isFieldCurrentlyFilling });
++    } catch {
++      // The background may be restarting; the flag only affects the inline menu.
++    }
++  }
++
++  private report(run: ActiveRun, index: number, phase: SmartfillProgressPhase, error?: string) {
++    void this.sendMessage(SmartfillCommand.progress, {
++      runId: run.runId,
++      index,
++      phase,
++      ...(error ? { error } : {}),
++    }).catch((): void => undefined);
++  }
++
++  private sleep(milliseconds: number, run?: ActiveRun): Promise<void> {
++    const end = Date.now() + Math.max(0, milliseconds);
++    return new Promise((resolve) => {
++      const tick = () => {
++        const remaining = end - Date.now();
++        if (remaining <= 0 || run?.cancelled) {
++          resolve();
++          return;
++        }
++        setTimeout(tick, Math.min(remaining, POLL_INTERVAL_MS));
++      };
++      tick();
++    });
++  }
++
++  private describeError(error: unknown): string {
++    return error instanceof Error ? error.message : String(error);
++  }
++
++  private logWarning(text: string): void {
++    // eslint-disable-next-line no-console
++    console.warn(LOG_PREFIX, text);
++  }
++}
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe.background.spec.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe.background.spec.ts
+new file mode 100644
+index 0000000..d91bec9
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe.background.spec.ts
+@@ -0,0 +1,305 @@
++import { mock } from "jest-mock-extended";
++import { BehaviorSubject, of } from "rxjs";
++
++import { AccountService } from "@bitwarden/common/auth/abstractions/account.service";
++import { AuthService } from "@bitwarden/common/auth/abstractions/auth.service";
++import { AuthenticationStatus } from "@bitwarden/common/auth/enums/authentication-status";
++import { DomainSettingsService } from "@bitwarden/common/autofill/services/domain-settings.service";
++import { LogService } from "@bitwarden/common/platform/abstractions/log.service";
++import { TotpService } from "@bitwarden/common/vault/abstractions/totp.service";
++import { CipherType, FieldType } from "@bitwarden/common/vault/enums";
++import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
++import { FieldView } from "@bitwarden/common/vault/models/view/field.view";
++import { LoginView } from "@bitwarden/common/vault/models/view/login.view";
++
++import { BrowserApi } from "../../platform/browser/browser-api";
++import { AutofillOutcome } from "../enums/autofill-outcome.enum";
++import AutofillPageDetails from "../models/autofill-page-details";
++import { PageDetail } from "../services/abstractions/autofill.service";
++
++import { SmartfillCommand } from "./smartfill-messages";
++import { SmartfillRecipeBackground, SmartfillRunRequest } from "./smartfill-recipe.background";
++
++const SITE = "https://bank.example";
++const TAB = { id: 7, url: `${SITE}/login`, active: true } as chrome.tabs.Tab;
++
++function recipeCipher(steps: unknown, extra: Partial<LoginView> = {}): CipherView {
++  const cipher = new CipherView();
++  cipher.id = "cipher";
++  cipher.type = CipherType.Login;
++  cipher.login = Object.assign(new LoginView(), {
++    username: "client-4242",
++    password: "73519",
++    ...extra,
++  });
++  // The login is saved for bank.example only.
++  cipher.login.matchesUri = jest.fn((url: string) => url.startsWith(SITE));
++  if (steps !== undefined) {
++    const field = new FieldView();
++    field.name = "grokbot:recipe";
++    field.type = FieldType.Hidden;
++    field.value = typeof steps === "string" ? steps : JSON.stringify({ steps });
++    cipher.fields = [field];
++  }
++  return cipher;
++}
++
++function frame(frameId: number, url: string): PageDetail {
++  return { frameId, tab: TAB, details: { url, fields: [] } as unknown as AutofillPageDetails };
++}
++
++describe("SmartfillRecipeBackground", () => {
++  const logService = mock<LogService>();
++  const authService = mock<AuthService>();
++  const accountService = mock<AccountService>();
++  const domainSettingsService = mock<DomainSettingsService>();
++  const totpService = mock<TotpService>();
++  let status$: BehaviorSubject<AuthenticationStatus>;
++  let background: SmartfillRecipeBackground;
++  let sent: { message: any; frameId?: number }[];
++  let answer: (message: any, frameId?: number) => unknown;
++  const listeners = new Map<unknown, (...args: any[]) => unknown>();
++
++  const request = (
++    cipher: CipherView,
++    extra: Partial<SmartfillRunRequest> = {},
++  ): SmartfillRunRequest => ({
++    tab: TAB,
++    cipher,
++    pageDetails: [frame(0, TAB.url as string)],
++    canAccessTotp: true,
++    defaultUriMatch: 0,
++    allowRecipe: true,
++    showAnimations: true,
++    requiresInsecureConfirmation: async () => false,
++    ...extra,
++  });
++
++  const runMessages = () => sent.filter((s) => s.message.command === SmartfillCommand.run);
++  const noticeMessages = () => sent.filter((s) => s.message.command === SmartfillCommand.notice);
++  const progress = (phase: string, index: number, runId: string, frameId = 0) =>
++    listeners.get(chrome.runtime.onMessage)?.(
++      { command: SmartfillCommand.progress, runId, index, phase },
++      { id: chrome.runtime.id, tab: TAB, frameId },
++    );
++  const navigate = async (url: string, frameId = 0) => {
++    listeners.get(chrome.webNavigation.onCompleted)?.({ tabId: TAB.id, frameId, url });
++    await new Promise((resolve) => setTimeout(resolve, 20));
++  };
++
++  beforeEach(() => {
++    jest.clearAllMocks();
++    listeners.clear();
++    sent = [];
++    answer = (message) =>
++      message.command === SmartfillCommand.run ? { accepted: true } : { found: false };
++    status$ = new BehaviorSubject<AuthenticationStatus>(AuthenticationStatus.Unlocked);
++    authService.activeAccountStatus$ = status$;
++    accountService.activeAccount$ = of({ id: "user" } as any);
++    domainSettingsService.getUrlEquivalentDomains.mockReturnValue(of(new Set<string>()));
++    totpService.getCode$.mockReturnValue(of({ code: "123456", period: 30 }));
++    (chrome as any).webNavigation = {
++      onCompleted: { addListener: jest.fn(), removeListener: jest.fn() },
++    };
++    (chrome.tabs as any).onRemoved = { addListener: jest.fn(), removeListener: jest.fn() };
++    (chrome.tabs as any).get = jest.fn((_id: number, callback: (tab: chrome.tabs.Tab) => void) =>
++      callback(TAB),
++    );
++    jest.spyOn(BrowserApi, "addListener").mockImplementation((event: any, callback: any) => {
++      listeners.set(event, callback);
++    });
++    jest.spyOn(BrowserApi, "removeListener").mockImplementation((event: any) => {
++      listeners.delete(event);
++    });
++    jest
++      .spyOn(BrowserApi, "tabSendMessage")
++      .mockImplementation(async (_tab: any, message: any, options: any) => {
++        sent.push({ message, frameId: options?.frameId });
++        return answer(message, options?.frameId) as any;
++      });
++    background = new SmartfillRecipeBackground(
++      logService,
++      authService,
++      accountService,
++      domainSettingsService,
++      totpService,
++    );
++    background.init();
++  });
++
++  it("stays out of the way for logins without a recipe", async () => {
++    await expect(background.tryRun(request(recipeCipher(undefined)))).resolves.toBeUndefined();
++    expect(sent).toEqual([]);
++  });
++
++  it("never runs on a page-load fill", async () => {
++    const cipher = recipeCipher([{ click: "#go" }]);
++    await expect(background.tryRun(request(cipher, { allowRecipe: false }))).resolves.toBe(
++      AutofillOutcome.Absent,
++    );
++    expect(sent).toEqual([]);
++  });
++
++  it("leaves pages that are not on the login's site to the regular fill", async () => {
++    const cipher = recipeCipher([{ fill: "password", into: "#pw" }]);
++    const other = { ...TAB, url: "https://evil.example/" } as chrome.tabs.Tab;
++    const outcome = await background.tryRun(
++      request(cipher, {
++        tab: other,
++        pageDetails: [{ ...frame(0, "https://evil.example/"), tab: other }],
++      }),
++    );
++    expect(outcome).toBeUndefined();
++    expect(sent).toEqual([]);
++  });
++
++  it("does not run the recipe of a shared (organization) login", async () => {
++    const cipher = recipeCipher([{ click: "#transfer" }]);
++    cipher.organizationId = "org-id";
++    await expect(background.tryRun(request(cipher))).resolves.toBeUndefined();
++    expect(runMessages()).toEqual([]);
++    expect(noticeMessages()[0].message.text).toContain("shared through an organization");
++  });
++
++  it("sends resolved steps to the top frame and reports a fill", async () => {
++    const cipher = recipeCipher(
++      [
++        { fill: "username", into: "#id" },
++        { keypad: "password", keys: ".pad button" },
++        { fill: "totp", into: "#otp" },
++      ],
++      { totp: "JBSWY3DPEHPK3PXP" },
++    );
++    await expect(background.tryRun(request(cipher))).resolves.toBe(AutofillOutcome.Filled);
++
++    const [run] = runMessages();
++    expect(run.frameId).toBe(0);
++    expect(run.message.expectedUrl).toBe(TAB.url);
++    expect(run.message.startAt).toBe(0);
++    expect(run.message.steps.map((s: any) => [s.kind, s.selector, s.value])).toEqual([
++      ["fill", "#id", "client-4242"],
++      ["keypad", ".pad button", "73519"],
++      ["fill", "#otp", "123456"],
++    ]);
++  });
++
++  it("runs in the frame that holds the first target", async () => {
++    const cipher = recipeCipher([{ fill: "username", into: "#id" }]);
++    answer = (message, frameId) =>
++      message.command === SmartfillCommand.probe ? { found: frameId === 4 } : { accepted: true };
++    await background.tryRun(
++      request(cipher, {
++        pageDetails: [
++          frame(4, `${SITE}/frame`),
++          frame(0, TAB.url as string),
++          frame(9, "https://ads.example/"),
++        ],
++      }),
++    );
++    expect(
++      sent.filter((s) => s.message.command === SmartfillCommand.probe).map((s) => s.frameId),
++    ).toEqual([0, 4]);
++    expect(runMessages()[0].frameId).toBe(4);
++  });
++
++  it("shows a notice and types nothing when the recipe is broken or a value is missing", async () => {
++    await expect(background.tryRun(request(recipeCipher('{"steps":[')))).resolves.toBe(
++      AutofillOutcome.Denied,
++    );
++    await expect(
++      background.tryRun(request(recipeCipher([{ fill: "field:Missing", into: "#a" }]))),
++    ).resolves.toBe(AutofillOutcome.Denied);
++    await expect(
++      background.tryRun(
++        request(recipeCipher([{ fill: "totp", into: "#otp" }], { totp: "JBSWY3DPEHPK3PXP" }), {
++          canAccessTotp: false,
++        }),
++      ),
++    ).resolves.toBe(AutofillOutcome.Denied);
++
++    expect(runMessages()).toEqual([]);
++    expect(noticeMessages().map((n) => n.message.text)).toEqual([
++      expect.stringContaining("not valid JSON"),
++      expect.stringContaining('no custom field "Missing"'),
++      expect.stringContaining("Premium"),
++    ]);
++  });
++
++  describe("after a page load", () => {
++    const steps = [
++      { fill: "username", into: "#id" },
++      { click: "#next" },
++      { wait: "#pw" },
++      { fill: "password", into: "#pw" },
++    ];
++
++    it("continues after the step that clicked", async () => {
++      await background.tryRun(request(recipeCipher(steps)));
++      const runId = runMessages()[0].message.runId;
++      progress("done", 0, runId);
++      progress("start", 1, runId);
++      progress("acting", 1, runId);
++
++      await navigate(`${SITE}/password`);
++
++      const resumed = runMessages()[1];
++      expect(resumed.message.startAt).toBe(2);
++      expect(resumed.message.expectedUrl).toBe(`${SITE}/password`);
++      expect(resumed.message.runId).not.toBe(runId);
++    });
++
++    it("repeats a step that was still waiting for its element", async () => {
++      await background.tryRun(request(recipeCipher(steps)));
++      const runId = runMessages()[0].message.runId;
++      progress("done", 1, runId);
++      progress("start", 2, runId);
++
++      await navigate(`${SITE}/password`);
++
++      expect(runMessages()[1].message.startAt).toBe(2);
++    });
++
++    it("stops when the page left the login's site", async () => {
++      await background.tryRun(request(recipeCipher(steps)));
++      progress("acting", 1, runMessages()[0].message.runId);
++
++      await navigate("https://evil.example/steal");
++      await navigate(`${SITE}/password`);
++
++      expect(runMessages()).toHaveLength(1);
++    });
++
++    it("stops when the vault locked, the tab is no longer in front, or another frame loaded", async () => {
++      await background.tryRun(request(recipeCipher(steps)));
++      progress("acting", 1, runMessages()[0].message.runId);
++      await navigate(`${SITE}/ad`, 3);
++      expect(runMessages()).toHaveLength(1);
++
++      (chrome.tabs as any).get = jest.fn((_id: number, callback: (tab: chrome.tabs.Tab) => void) =>
++        callback({ ...TAB, active: false }),
++      );
++      await navigate(`${SITE}/password`);
++      expect(runMessages()).toHaveLength(1);
++
++      await background.tryRun(request(recipeCipher(steps)));
++      progress("acting", 1, runMessages()[1].message.runId);
++      status$.next(AuthenticationStatus.Locked);
++      await navigate(`${SITE}/password`);
++      expect(runMessages()).toHaveLength(2);
++    });
++
++    it("ignores progress from other frames, tabs and runs, and forgets finished runs", async () => {
++      await background.tryRun(request(recipeCipher(steps)));
++      const runId = runMessages()[0].message.runId;
++      progress("acting", 1, "someone-else");
++      progress("acting", 1, runId, 5);
++      await navigate(`${SITE}/password`);
++      // Nothing was recorded, so the run starts over from its first step on the new page.
++      expect(runMessages()[1].message.startAt).toBe(0);
++
++      progress("finished", 3, runMessages()[1].message.runId);
++      await navigate(`${SITE}/again`);
++      expect(runMessages()).toHaveLength(2);
++    });
++  });
++});
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe.background.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe.background.ts
+new file mode 100644
+index 0000000..efb0e86
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe.background.ts
+@@ -0,0 +1,505 @@
++/**
++ * Smartfill fork — background side of saved entry steps ("grokbot:recipe").
++ *
++ * Decides whether a fill runs a recipe, resolves the values, picks the frame, sends the steps to
++ * the content script and follows the run. When a click or key press loads a new page, the run is
++ * resumed on that page only if the page is still on the login's saved site, the account is still
++ * unlocked and the tab is still the one in front. Values never leave the extension except into
++ * the page, and nothing here logs them.
++ */
++import { firstValueFrom, map } from "rxjs";
++
++import { AccountService } from "@bitwarden/common/auth/abstractions/account.service";
++import { AuthService } from "@bitwarden/common/auth/abstractions/auth.service";
++import { AuthenticationStatus } from "@bitwarden/common/auth/enums/authentication-status";
++import { DomainSettingsService } from "@bitwarden/common/autofill/services/domain-settings.service";
++import { UriMatchStrategySetting } from "@bitwarden/common/models/domain/domain-service";
++import { LogService } from "@bitwarden/common/platform/abstractions/log.service";
++import { Utils } from "@bitwarden/common/platform/misc/utils";
++import { UserId } from "@bitwarden/common/types/guid";
++import { TotpService } from "@bitwarden/common/vault/abstractions/totp.service";
++import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
++
++import { BrowserApi } from "../../platform/browser/browser-api";
++import { AutofillOutcome } from "../enums/autofill-outcome.enum";
++import { PageDetail } from "../services/abstractions/autofill.service";
++
++import {
++  SmartfillCommand,
++  SmartfillNoticeMessage,
++  SmartfillProbeMessage,
++  SmartfillProgressMessage,
++  SmartfillProgressPhase,
++  SmartfillRunMessage,
++} from "./smartfill-messages";
++import {
++  parseSmartfillRecipe,
++  resolveSmartfillSteps,
++  SmartfillRecipeStep,
++  SmartfillResolvedStep,
++  smartfillStepSelector,
++} from "./smartfill-recipe-format";
++
++/**
++ * Recipes click and submit. Anyone who can edit a shared (organization) login could write one, so
++ * only the user's own logins may run theirs; a shared login is filled the regular way.
++ */
++export const SMARTFILL_RUN_ORGANIZATION_RECIPES = false;
++
++/** A run (with its resumes) ends after this long. */
++export const SMARTFILL_RUN_LIFETIME_MS = 120000;
++/** At most this many page loads are followed in one run. */
++export const SMARTFILL_MAX_RESUMES = 8;
++/** A freshly loaded page gets its content script a moment after `onCompleted`. */
++const RESUME_SEND_ATTEMPTS = 20;
++const RESUME_SEND_INTERVAL_MS = 250;
++
++export type SmartfillRunRequest = {
++  tab: chrome.tabs.Tab;
++  cipher: CipherView;
++  pageDetails: PageDetail[];
++  /** Premium or an organization that uses TOTP: the same entitlement Bitwarden's TOTP fill uses. */
++  canAccessTotp: boolean;
++  defaultUriMatch: UriMatchStrategySetting;
++  /** `false` for page-load fills: a login with a recipe is then left alone. */
++  allowRecipe: boolean;
++  showAnimations: boolean;
++  /** Bitwarden's insecure-page check for a frame URL (http page, https login). */
++  requiresInsecureConfirmation: (frameUrl: string) => Promise<boolean>;
++};
++
++type SmartfillRun = {
++  runId: string;
++  tabId: number;
++  frameId: number;
++  userId: UserId;
++  cipher: CipherView;
++  steps: SmartfillRecipeStep[];
++  canAccessTotp: boolean;
++  defaultUriMatch: UriMatchStrategySetting;
++  showAnimations: boolean;
++  requiresInsecureConfirmation: (frameUrl: string) => Promise<boolean>;
++  startAt: number;
++  progress: { index: number; phase: SmartfillProgressPhase } | null;
++  resumes: number;
++  expiresAt: number;
++  expiryTimer?: ReturnType<typeof setTimeout>;
++};
++
++export class SmartfillRecipeBackground {
++  private readonly runs = new Map<number, SmartfillRun>();
++  private followingNavigation = false;
++
++  constructor(
++    private readonly logService: LogService,
++    private readonly authService: AuthService,
++    private readonly accountService: AccountService,
++    private readonly domainSettingsService: DomainSettingsService,
++    private readonly totpService: TotpService,
++  ) {}
++
++  init(): void {
++    BrowserApi.addListener(chrome.runtime.onMessage, this.handleExtensionMessage);
++    // A run holds the login it is filling: let go of it as soon as the vault locks or logs out.
++    this.authService.activeAccountStatus$.subscribe((status) => {
++      if (status !== AuthenticationStatus.Unlocked) {
++        this.endAllRuns();
++      }
++    });
++  }
++
++  /**
++   * Runs the login's recipe if it has one.
++   *
++   * @returns `undefined` when the regular fill should happen instead (no recipe, or no frame on
++   * the login's site), otherwise the outcome of starting the recipe.
++   */
++  async tryRun(request: SmartfillRunRequest): Promise<AutofillOutcome | undefined> {
++    const parsed = parseSmartfillRecipe(request.cipher);
++    if (parsed === null) {
++      return undefined;
++    }
++    if (!request.allowRecipe) {
++      // Recipes click and submit, so they only run when the user asks for a fill.
++      return AutofillOutcome.Absent;
++    }
++    if (request.tab?.id == null) {
++      return AutofillOutcome.Denied;
++    }
++
++    const candidates = await this.framesOnLoginSite(request);
++    if (!candidates.length) {
++      return undefined;
++    }
++
++    if (request.cipher.organizationId && !SMARTFILL_RUN_ORGANIZATION_RECIPES) {
++      this.showNotice(
++        request.tab,
++        candidates[0],
++        "This login is shared through an organization, so its saved entry steps were not run. It was filled the regular way.",
++      );
++      return undefined;
++    }
++
++    if ("error" in parsed) {
++      this.showNotice(
++        request.tab,
++        candidates[0],
++        `The saved entry steps ("grokbot:recipe") of this login can't be used: ${parsed.error}. Fix the field in Bitwarden.`,
++      );
++      return AutofillOutcome.Denied;
++    }
++
++    const userId = await this.activeUserId();
++    if (!userId) {
++      return AutofillOutcome.Denied;
++    }
++
++    const resolved = await resolveSmartfillSteps(
++      request.cipher,
++      parsed.steps,
++      this.totpGetter(request.cipher, request.canAccessTotp),
++    );
++    if ("error" in resolved) {
++      this.showNotice(
++        request.tab,
++        candidates[0],
++        `Step ${resolved.step} of this login's entry steps can't run: ${resolved.error}.`,
++      );
++      return AutofillOutcome.Denied;
++    }
++
++    const target = await this.chooseFrame(request.tab, candidates, parsed.steps);
++    this.endRunForTab(request.tab.id, true);
++
++    const run: SmartfillRun = {
++      runId: Utils.newGuid(),
++      tabId: request.tab.id,
++      frameId: target.frameId,
++      userId,
++      cipher: request.cipher,
++      steps: parsed.steps,
++      canAccessTotp: request.canAccessTotp,
++      defaultUriMatch: request.defaultUriMatch,
++      showAnimations: request.showAnimations,
++      requiresInsecureConfirmation: request.requiresInsecureConfirmation,
++      startAt: 0,
++      progress: null,
++      resumes: 0,
++      expiresAt: Date.now() + SMARTFILL_RUN_LIFETIME_MS,
++    };
++    run.expiryTimer = setTimeout(() => this.endRun(run), SMARTFILL_RUN_LIFETIME_MS);
++    this.runs.set(run.tabId, run);
++    this.followNavigation(true);
++
++    const accepted = await this.sendRun(run, target.details.url, resolved.steps, 0, 1);
++    if (!accepted) {
++      this.endRun(run);
++      return AutofillOutcome.Denied;
++    }
++    return AutofillOutcome.Filled;
++  }
++
++  /** Frames of the target tab whose own URL matches the login, the top frame first. */
++  private async framesOnLoginSite(request: SmartfillRunRequest): Promise<PageDetail[]> {
++    const seenFrames = new Set<number>();
++    const frames: PageDetail[] = [];
++    for (const pageDetail of request.pageDetails ?? []) {
++      const frameUrl = pageDetail?.details?.url;
++      if (
++        !frameUrl ||
++        pageDetail.tab?.id !== request.tab.id ||
++        pageDetail.tab?.url !== request.tab.url ||
++        seenFrames.has(pageDetail.frameId)
++      ) {
++        continue;
++      }
++      if (await this.urlMatchesLogin(request.cipher, frameUrl, request.defaultUriMatch)) {
++        seenFrames.add(pageDetail.frameId);
++        frames.push(pageDetail);
++      }
++    }
++    return frames.sort((a, b) => Number(b.frameId === 0) - Number(a.frameId === 0));
++  }
++
++  /** The frame holding the recipe's first target, else the first frame on the login's site. */
++  private async chooseFrame(
++    tab: chrome.tabs.Tab,
++    candidates: PageDetail[],
++    steps: SmartfillRecipeStep[],
++  ): Promise<PageDetail> {
++    const selector = steps.map((step) => smartfillStepSelector(step)).find(Boolean);
++    if (!selector || candidates.length === 1) {
++      return candidates[0];
++    }
++
++    for (const candidate of candidates) {
++      const message: SmartfillProbeMessage = { command: SmartfillCommand.probe, selector };
++      const response = await BrowserApi.tabSendMessage<SmartfillProbeMessage, { found?: boolean }>(
++        tab,
++        message,
++        { frameId: candidate.frameId },
++      ).catch((): undefined => undefined);
++      if (response?.found === true) {
++        return candidate;
++      }
++    }
++    return candidates[0];
++  }
++
++  private async sendRun(
++    run: SmartfillRun,
++    expectedUrl: string,
++    steps: SmartfillResolvedStep[],
++    startAt: number,
++    attempts: number,
++  ): Promise<boolean> {
++    const message: SmartfillRunMessage = {
++      command: SmartfillCommand.run,
++      runId: run.runId,
++      steps,
++      startAt,
++      resume: run.resumes > 0,
++      expectedUrl,
++      confirmInsecure: await run.requiresInsecureConfirmation(expectedUrl),
++      showAnimations: run.showAnimations,
++    };
++
++    for (let attempt = 0; attempt < attempts; attempt++) {
++      if (this.runs.get(run.tabId) !== run) {
++        return false;
++      }
++      const response = await BrowserApi.tabSendMessage<SmartfillRunMessage, { accepted?: boolean }>(
++        { id: run.tabId } as chrome.tabs.Tab,
++        message,
++        { frameId: run.frameId },
++      ).catch((): undefined => undefined);
++      if (response?.accepted === true) {
++        return true;
++      }
++      if (attempt + 1 < attempts) {
++        await new Promise((resolve) => setTimeout(resolve, RESUME_SEND_INTERVAL_MS));
++      }
++    }
++    return false;
++  }
++
++  private readonly handleExtensionMessage = (
++    message: SmartfillProgressMessage,
++    sender: chrome.runtime.MessageSender,
++  ): void => {
++    if (message?.command !== SmartfillCommand.progress || sender?.id !== chrome.runtime.id) {
++      return;
++    }
++    const tabId = sender.tab?.id;
++    const run = tabId == null ? undefined : this.runs.get(tabId);
++    if (!run || run.runId !== message.runId || (sender.frameId ?? 0) !== run.frameId) {
++      return;
++    }
++
++    switch (message.phase) {
++      case "start":
++      case "acting":
++      case "done":
++      case "skipped":
++        run.progress = { index: Number(message.index) || 0, phase: message.phase };
++        return;
++      case "failed":
++        // The page shows the reason; the log only says where (no vault data).
++        this.logService.warning(
++          `Smartfill: entry steps stopped at step ${(Number(message.index) || 0) + 1}.`,
++        );
++        this.endRun(run);
++        return;
++      case "finished":
++        this.endRun(run);
++        return;
++    }
++  };
++
++  private readonly handleNavigationCompleted = (
++    details: chrome.webNavigation.WebNavigationFramedCallbackDetails,
++  ): void => {
++    const run = this.runs.get(details.tabId);
++    if (!run || details.frameId !== run.frameId) {
++      return;
++    }
++    void this.resume(run, details.url).catch((error: unknown) => {
++      this.logService.error(error);
++      this.endRun(run);
++    });
++  };
++
++  private readonly handleTabRemoved = (tabId: number): void => {
++    this.endRunForTab(tabId, false);
++  };
++
++  /** Continues a run on the page a click or key press loaded. */
++  private async resume(run: SmartfillRun, url: string): Promise<void> {
++    if (Date.now() > run.expiresAt || run.resumes >= SMARTFILL_MAX_RESUMES) {
++      this.endRun(run);
++      return;
++    }
++
++    const startAt = this.resumeIndex(run);
++    if (startAt >= run.steps.length) {
++      this.endRun(run);
++      return;
++    }
++
++    const status = await firstValueFrom(this.authService.activeAccountStatus$);
++    if (status !== AuthenticationStatus.Unlocked || (await this.activeUserId()) !== run.userId) {
++      this.endRun(run);
++      return;
++    }
++
++    const tab = await this.getTab(run.tabId);
++    if (!tab?.active) {
++      this.endRun(run);
++      return;
++    }
++
++    if (!(await this.urlMatchesLogin(run.cipher, url, run.defaultUriMatch))) {
++      this.logService.info("Smartfill: the page left the login's site, entry steps stopped.");
++      this.endRun(run);
++      return;
++    }
++
++    const resolved = await resolveSmartfillSteps(
++      run.cipher,
++      run.steps,
++      this.totpGetter(run.cipher, run.canAccessTotp),
++    );
++    if ("error" in resolved) {
++      this.endRun(run);
++      return;
++    }
++
++    run.runId = Utils.newGuid();
++    run.resumes++;
++    run.startAt = startAt;
++    run.progress = null;
++    const accepted = await this.sendRun(run, url, resolved.steps, startAt, RESUME_SEND_ATTEMPTS);
++    if (!accepted) {
++      this.endRun(run);
++    }
++  }
++
++  /**
++   * Where to continue after a page load: a step that was still waiting for its element runs
++   * again; a step that already clicked, typed or pressed counts as done.
++   */
++  private resumeIndex(run: SmartfillRun): number {
++    const progress = run.progress;
++    if (!progress) {
++      return run.startAt;
++    }
++    return progress.phase === "start" ? progress.index : progress.index + 1;
++  }
++
++  private endRunForTab(tabId: number, notifyFrame: boolean): void {
++    const run = this.runs.get(tabId);
++    if (!run) {
++      return;
++    }
++    if (notifyFrame) {
++      void BrowserApi.tabSendMessage(
++        { id: tabId } as chrome.tabs.Tab,
++        { command: SmartfillCommand.cancel, runId: run.runId },
++        { frameId: run.frameId },
++      ).catch((): void => undefined);
++    }
++    this.endRun(run);
++  }
++
++  private endAllRuns(): void {
++    for (const tabId of Array.from(this.runs.keys())) {
++      this.endRunForTab(tabId, true);
++    }
++  }
++
++  private endRun(run: SmartfillRun): void {
++    if (run.expiryTimer) {
++      clearTimeout(run.expiryTimer);
++    }
++    if (this.runs.get(run.tabId) === run) {
++      this.runs.delete(run.tabId);
++    }
++    if (!this.runs.size) {
++      this.followNavigation(false);
++    }
++  }
++
++  private followNavigation(enabled: boolean): void {
++    if (enabled === this.followingNavigation) {
++      return;
++    }
++    this.followingNavigation = enabled;
++    if (enabled) {
++      BrowserApi.addListener(chrome.webNavigation.onCompleted, this.handleNavigationCompleted);
++      BrowserApi.addListener(chrome.tabs.onRemoved, this.handleTabRemoved);
++      return;
++    }
++    BrowserApi.removeListener(chrome.webNavigation.onCompleted, this.handleNavigationCompleted);
++    BrowserApi.removeListener(chrome.tabs.onRemoved, this.handleTabRemoved);
++  }
++
++  private showNotice(tab: chrome.tabs.Tab, frame: PageDetail, text: string): void {
++    const message: SmartfillNoticeMessage = {
++      command: SmartfillCommand.notice,
++      text,
++      expectedUrl: frame.details.url,
++    };
++    void BrowserApi.tabSendMessage(tab, message, { frameId: frame.frameId }).catch(
++      (): void => undefined,
++    );
++  }
++
++  private totpGetter(cipher: CipherView, canAccessTotp: boolean) {
++    return async (): Promise<{ code?: string | null; error?: string }> => {
++      if (!canAccessTotp) {
++        return {
++          error:
++            "authenticator codes need Bitwarden Premium or an organization that uses them (the same rule as the official extension)",
++        };
++      }
++      const totpKey = cipher.login?.totp;
++      if (!totpKey) {
++        return { error: "the login has no authenticator key" };
++      }
++      const response = await firstValueFrom(this.totpService.getCode$(totpKey));
++      return { code: response?.code ?? null };
++    };
++  }
++
++  private async urlMatchesLogin(
++    cipher: CipherView,
++    url: string,
++    defaultUriMatch: UriMatchStrategySetting,
++  ): Promise<boolean> {
++    if (!cipher.login || !url) {
++      return false;
++    }
++    const equivalentDomains = await firstValueFrom(
++      this.domainSettingsService.getUrlEquivalentDomains(url),
++    );
++    return cipher.login.matchesUri(url, equivalentDomains, defaultUriMatch);
++  }
++
++  private activeUserId(): Promise<UserId | undefined> {
++    return firstValueFrom(
++      this.accountService.activeAccount$.pipe(map((account) => account?.id ?? undefined)),
++    );
++  }
++
++  /** `chrome.tabs.get` as a promise (BrowserApi.getTab only answers under Manifest V3). */
++  private getTab(tabId: number): Promise<chrome.tabs.Tab | undefined> {
++    return new Promise((resolve) => {
++      try {
++        chrome.tabs.get(tabId, (tab) => resolve(chrome.runtime.lastError ? undefined : tab));
++      } catch {
++        resolve(undefined);
++      }
++    });
++  }
++}
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-text.ts b/apps/browser/src/autofill/smartfill/smartfill-text.ts
+new file mode 100644
+index 0000000..494db01
+--- /dev/null
++++ b/apps/browser/src/autofill/smartfill/smartfill-text.ts
+@@ -0,0 +1,34 @@
++/**
++ * Smartfill fork — text helpers shared by the background and the content scripts. No imports,
++ * so content bundles stay small. Same rules as the Grok Bot connector; keep both in sync.
++ */
++
++/**
++ * Folds text for name comparisons: strips accents (NFD, combining marks U+0300–U+036F),
++ * lowercases and trims. Same as the connector's `foldText`.
++ */
++export function smartfillFoldText(value: unknown): string {
++  return String(value ?? "")
++    .normalize("NFD")
++    .replace(/[̀-ͯ]/g, "")
++    .toLowerCase()
++    .trim();
++}
++
++/**
++ * Normalizes a label for page matching: folded text with every run of non-alphanumeric
++ * characters turned into one space. Same as the connector's `__norm`.
++ */
++export function smartfillNormalizeLabel(value: unknown): string {
++  return smartfillFoldText(value)
++    .replace(/[^a-z0-9]+/g, " ")
++    .trim();
++}
++
++/** Values that tick a checkbox (a Boolean custom field stores "true" / "false"). */
++export function smartfillIsTruthy(value: unknown): boolean {
++  return /^(true|1|yes|oui|on|y|✓)$/i.test(String(value ?? "").trim());
++}
++
++/** Page-details property that carries the text of the elements named by aria-labelledby. */
++export const SMARTFILL_LABELLEDBY_PROPERTY = "label-aria-labelledby";
+diff --git a/apps/browser/src/background/main.background.ts b/apps/browser/src/background/main.background.ts
+index f93fe9f..271335b 100644
+--- a/apps/browser/src/background/main.background.ts
++++ b/apps/browser/src/background/main.background.ts
+@@ -373,6 +373,7 @@ import { ClipboardNotificationBadgeUpdaterService } from "../autofill/services/c
+ import { InlineMenuFieldQualificationService } from "../autofill/services/inline-menu-field-qualification.service";
+ import { TargetingRulesDataService } from "../autofill/services/targeting-rules-data.service";
+ import { WebmapperDraftService } from "../autofill/services/webmapper-draft.service";
++import { SmartfillRecipeBackground } from "../autofill/smartfill/smartfill-recipe.background";
+ import { shouldAutoCopyTotp } from "../autofill/types/fill-result";
+ import { trackGeneratedCredential } from "../autofill/utils/credential-history-utils";
+ import { SafariApp } from "../browser/safariApp";
+@@ -463,6 +464,7 @@ export default class MainBackground {
+   totpService: TotpServiceAbstraction;
+   autofillLifecycleService: AutofillLifecycleService;
+   autofillService: AutofillServiceAbstraction;
++  smartfillRecipeBackground: SmartfillRecipeBackground;
+   autofillOrchestrator: AutofillOrchestrator;
+   containerService: ContainerService;
+   auditService: AuditServiceAbstraction;
+@@ -1354,6 +1356,14 @@ export default class MainBackground {
+       this.authService,
+       this.logService,
+     );
++    // Smartfill fork: saved entry steps ("grokbot:recipe") for logins with unusual sign-in pages.
++    this.smartfillRecipeBackground = new SmartfillRecipeBackground(
++      this.logService,
++      this.authService,
++      this.accountService,
++      this.domainSettingsService,
++      this.totpService,
++    );
+     this.autofillService = new AutofillService(
+       this.cipherService,
+       this.autofillSettingsService,
+@@ -1370,6 +1380,7 @@ export default class MainBackground {
+       this.messageListener,
+       this.animationControlService,
+       this.autofillLifecycleService,
++      this.smartfillRecipeBackground,
+     );
+     this.autofillOrchestrator = new DefaultAutofillOrchestrator(
+       this.autofillLifecycleService,
+@@ -1895,6 +1906,7 @@ export default class MainBackground {
+     this.autofillLifecycleService.init();
+     await this.runtimeBackground.init();
+     this.autofillOrchestrator.init();
++    this.smartfillRecipeBackground.init();
+     await this.notificationBackground.init();
+     this.overlayNotificationsBackground.init();
+     this.commandsBackground.init();
+diff --git a/apps/browser/webpack/manifest-smartfill-overrides.json b/apps/browser/webpack/manifest-smartfill-overrides.json
+new file mode 100644
+index 0000000..6befe72
+--- /dev/null
++++ b/apps/browser/webpack/manifest-smartfill-overrides.json
+@@ -0,0 +1,19 @@
++{
++  "name": "Bitwarden Smartfill (unofficial fork)",
++  "short_name": "BW Smartfill",
++  "description": "Unofficial personal fork of the Bitwarden browser extension (GPL-3.0), modified to fill multi-field logins and to run saved entry steps. Not affiliated with Bitwarden Inc.",
++  "action": {
++    "default_title": "Bitwarden Smartfill (unofficial fork)"
++  },
++  "browser_action": {
++    "default_title": "Bitwarden Smartfill (unofficial fork)"
++  },
++  "browser_specific_settings": {
++    "gecko": {
++      "id": "bitwarden-smartfill@unofficial.fork"
++    }
++  },
++  "sidebar_action": {
++    "default_title": "Bitwarden Smartfill (unofficial fork)"
++  }
++}
+diff --git a/apps/browser/webpack/manifest.js b/apps/browser/webpack/manifest.js
+index 3c1e349..e21da6e 100644
+--- a/apps/browser/webpack/manifest.js
++++ b/apps/browser/webpack/manifest.js
+@@ -26,6 +26,7 @@ function transform(browser) {
+ 
+     manifest = transformPrefixes(manifest, browser);
+     manifest = transformChannel(manifest);
++    manifest = transformSmartfill(manifest);
+ 
+     return JSON.stringify(manifest, null, 2);
+   };
+@@ -44,6 +45,16 @@ function transformChannel(manifest) {
+   return applyOverrides(manifest, require("./manifest-beta-overrides.json"));
+ }
+ 
++// Smartfill fork: this is a modified build, so it says so in its name and description, and it
++// uses its own Firefox add-on id so it can never replace the official add-on. Overrides live in
++// `manifest-smartfill-overrides.json`. Set SMARTFILL_BRANDING=off to build with upstream's names.
++function transformSmartfill(manifest) {
++  if (process.env.SMARTFILL_BRANDING === "off") {
++    return manifest;
++  }
++  return applyOverrides(manifest, require("./manifest-smartfill-overrides.json"));
++}
++
+ function applyOverrides(target, overrides) {
+   for (const [key, value] of Object.entries(overrides)) {
+     if (isPlainObject(value)) {

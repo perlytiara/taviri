@@ -1,0 +1,7 @@
+[Unit]
+Description=pi-vault encrypted backup
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vaultctl backup

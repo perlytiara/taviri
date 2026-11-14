@@ -1,0 +1,7 @@
+# No secrets live in this folder. These are here as a safety net only.
+*.age
+*.key
+*identity*
+vault.env
+site.env
+.DS_Store

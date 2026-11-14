@@ -1,0 +1,334 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: owner <owner@localhost>
+Date: Sat, 14 Nov 2026 23:52:06 +0100
+Subject: [PATCH 07/11] Taviri: read taviri:recipe as well as grokbot:recipe
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Saved entry steps are read from a custom field named `taviri:recipe`
+(the Taviri connector's name) or the older `grokbot:recipe`; with both,
+`taviri:recipe` wins, and names ignore case and accents, as in the
+connector. The notice for a broken recipe names the field it read.
+Taviri's own settings (`taviri:icon`…) are also kept out of Bitwarden's
+custom-field fill.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ apps/browser/SMARTFILL.md                     |  8 ++---
+ .../src/autofill/content/autofill-init.ts     |  2 +-
+ .../services/abstractions/autofill.service.ts |  2 +-
+ .../src/autofill/services/autofill.service.ts | 11 ++++--
+ .../smartfill-autofill-service.spec.ts        | 16 +++++++++
+ .../smartfill/smartfill-recipe-format.spec.ts | 30 +++++++++++++++-
+ .../smartfill/smartfill-recipe-format.ts      | 34 ++++++++++++++-----
+ .../smartfill/smartfill-recipe-runner.ts      |  2 +-
+ .../smartfill/smartfill-recipe.background.ts  |  6 ++--
+ .../browser/src/background/main.background.ts |  2 +-
+ 10 files changed, 91 insertions(+), 22 deletions(-)
+
+diff --git a/apps/browser/SMARTFILL.md b/apps/browser/SMARTFILL.md
+index d411216..d395cac 100644
+--- a/apps/browser/SMARTFILL.md
++++ b/apps/browser/SMARTFILL.md
+@@ -14,7 +14,7 @@ and every change there is marked with a `Smartfill fork:` comment.
+ 
+ | Area                                                                                                                                                      | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+-| `src/autofill/smartfill/smartfill-recipe-format.ts`                                                                                                       | The `grokbot:recipe` format: parsing, validation, values (`username`, `password`, `totp`, `field:<name>`, `text:<words>`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
++| `src/autofill/smartfill/smartfill-recipe-format.ts`                                                                                                       | The recipe format, read from a `taviri:recipe` field or the older `grokbot:recipe` (with both, `taviri:recipe` wins; names ignore case and accents): parsing, validation, values (`username`, `password`, `totp`, `field:<name>`, `text:<words>`).                                                                                                                                                                                                                                                                                                                                                  |
+ | `src/autofill/smartfill/smartfill-field-matching.ts`                                                                                                      | Matching a login's extra custom fields to page controls (case- and accent-insensitive, exact before partial, ties left empty).                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+ | `src/autofill/smartfill/smartfill-recipe-runner.ts`                                                                                                       | Content script: runs the steps in a frame (fill, click, wait, keypad, press), reports progress, shows a notice on errors.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+ | `src/autofill/smartfill/smartfill-recipe.background.ts`                                                                                                   | Background: decides when a recipe runs, resolves values, picks the frame, resumes after a page load only if the page is still on the login's site.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+@@ -40,8 +40,8 @@ The format is shared with the Grok Bot Bitwarden connector; its specification is
+   name, label or neighbouring text equalled the name. Names in Bitwarden's rule syntax (`id=…`,
+   `name=…`, `label=…`, `placeholder=…`, `regex=…`, `csv=…`) and linked fields behave as upstream.
+   Cards and identities are untouched.
+-- A login with a `grokbot:recipe` field is filled by its recipe on its own site, and is not
+-  filled at all by "autofill on page load".
++- A login with a `taviri:recipe` (or `grokbot:recipe`) field is filled by its recipe on its own
++  site, and is not filled at all by "autofill on page load".
+ - The recipe of a shared (organization) login is ignored and the login is filled the regular way:
+   anyone who can edit a shared login could otherwise make the browser click things on that site
+   (`SMARTFILL_RUN_ORGANIZATION_RECIPES` in `smartfill-recipe.background.ts`).
+@@ -54,7 +54,7 @@ The format is shared with the Grok Bot Bitwarden connector; its specification is
+ 
+ ## Tests
+ 
+-`npx jest src/autofill/smartfill` from `apps/browser` (53 unit tests), and
++`npx jest src/autofill/smartfill` from `apps/browser` (55 unit tests), and
+ `npx jest --config libs/common/jest.config.js libs/common/src/vault/icon` from the repository root
+ for the item icons (25 new tests next to upstream's icon tests). End-to-end tests with a
+ local fake vault live outside this checkout, in `clients/extension/test` in the Taviri repository.
+diff --git a/apps/browser/src/autofill/content/autofill-init.ts b/apps/browser/src/autofill/content/autofill-init.ts
+index c7b2021..805c10b 100644
+--- a/apps/browser/src/autofill/content/autofill-init.ts
++++ b/apps/browser/src/autofill/content/autofill-init.ts
+@@ -30,7 +30,7 @@ class AutofillInit implements AutofillInitInterface {
+   private readonly sendExtensionMessage = sendExtensionMessage;
+   private readonly collectAutofillContentService: CollectAutofillContentService;
+   private readonly insertAutofillContentService: InsertAutofillContentService;
+-  /** Smartfill fork: runs saved entry steps ("grokbot:recipe") in this frame. */
++  /** Smartfill fork: runs saved entry steps ("taviri:recipe") in this frame. */
+   private readonly smartfillRecipeRunner: SmartfillRecipeRunner;
+   private collectPageDetailsOnLoadTimeout: number | NodeJS.Timeout | undefined;
+   private lastContextMenuClickedElement: HTMLElement | null = null;
+diff --git a/apps/browser/src/autofill/services/abstractions/autofill.service.ts b/apps/browser/src/autofill/services/abstractions/autofill.service.ts
+index eb94df7..2175848 100644
+--- a/apps/browser/src/autofill/services/abstractions/autofill.service.ts
++++ b/apps/browser/src/autofill/services/abstractions/autofill.service.ts
+@@ -33,7 +33,7 @@ export interface AutoFillOptions {
+   focusedFieldOpid?: string;
+   inlineMenuFillType?: InlineMenuFillType;
+   /**
+-   * Smartfill fork: whether a login's saved entry steps ("grokbot:recipe") may run. Page-load
++   * Smartfill fork: whether a login's saved entry steps ("taviri:recipe") may run. Page-load
+    * fills set `false`; every fill the user asks for leaves it unset (allowed).
+    */
+   allowRecipe?: boolean;
+diff --git a/apps/browser/src/autofill/services/autofill.service.ts b/apps/browser/src/autofill/services/autofill.service.ts
+index f46999d..627a3ff 100644
+--- a/apps/browser/src/autofill/services/autofill.service.ts
++++ b/apps/browser/src/autofill/services/autofill.service.ts
+@@ -40,6 +40,7 @@ import { CipherService } from "@bitwarden/common/vault/abstractions/cipher.servi
+ import { TotpService } from "@bitwarden/common/vault/abstractions/totp.service";
+ import { FieldType, CipherType } from "@bitwarden/common/vault/enums";
+ import { CipherRepromptType } from "@bitwarden/common/vault/enums/cipher-reprompt-type";
++import { isTaviriFieldName } from "@bitwarden/common/vault/icon/taviri-fields";
+ import { CardView } from "@bitwarden/common/vault/models/view/card.view";
+ import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
+ import { FieldView } from "@bitwarden/common/vault/models/view/field.view";
+@@ -126,7 +127,7 @@ export default class AutofillService implements AutofillServiceInterface {
+     private messageListener: MessageListener,
+     private animationControlService: AnimationControlService,
+     private autofillLifecycleService: AutofillLifecycleService,
+-    /** Smartfill fork: runs saved entry steps ("grokbot:recipe"). Optional so tests can omit it. */
++    /** Smartfill fork: runs saved entry steps ("taviri:recipe"). Optional so tests can omit it. */
+     private smartfillRecipeBackground?: SmartfillRecipeBackground,
+   ) {
+     this.enableInlineMenuAnimation$ = this.animationControlService.enableInlineMenuAnimation$;
+@@ -741,10 +742,14 @@ export default class AutofillService implements AutofillServiceInterface {
+ 
+     if (fields && fields.length) {
+       // Smartfill fork: keep each name aligned with its field (the index below picks the field)
+-      // and leave out the recipe field, which is not a value for the page.
++      // and leave out the recipe fields and Taviri's own settings (`taviri:icon`…), which are not
++      // values for the page.
+       const namedFields: FieldView[] = fields.filter(
+         (f) =>
+-          f.name != null && AutofillService.hasValue(f.name) && !isSmartfillRecipeFieldName(f.name),
++          f.name != null &&
++          AutofillService.hasValue(f.name) &&
++          !isSmartfillRecipeFieldName(f.name) &&
++          !isTaviriFieldName(f.name),
+       );
+       const fieldNames: string[] = namedFields.map((f) => (f.name as string).toLowerCase());
+       const matchedFieldIndexes = new Set<number>();
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-autofill-service.spec.ts b/apps/browser/src/autofill/smartfill/smartfill-autofill-service.spec.ts
+index ca4a7f0..c9399e8 100644
+--- a/apps/browser/src/autofill/smartfill/smartfill-autofill-service.spec.ts
++++ b/apps/browser/src/autofill/smartfill/smartfill-autofill-service.spec.ts
+@@ -192,6 +192,22 @@ describe("AutofillService with Smartfill", () => {
+       expect(filledValues(script)).toEqual({ pw: "246810" });
+     });
+ 
++    it("never types taviri:recipe or Taviri's settings (taviri:icon) into the page", async () => {
++      const details = pageDetails([
++        pageField("recipe", { "label-tag": "taviri:recipe", htmlID: "taviri:recipe" }),
++        pageField("icon", { "label-tag": "Icon", htmlID: "taviri:icon" }),
++        pageField("pw", { type: "password", htmlID: "password" }),
++      ]);
++      const cipher = loginCipher([
++        customField("taviri:recipe", '{"steps":[{"click":"#a"}]}'),
++        customField("taviri:icon", "wifi"),
++      ]);
++
++      const script = await autofillService["generateFillScript"](details, options(cipher));
++
++      expect(filledValues(script)).toEqual({ pw: "246810" });
++    });
++
+     it("keeps Bitwarden's rule syntax working", async () => {
+       const details = pageDetails([
+         pageField("a", { htmlID: "customer_no_1" }),
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts
+index 9e5ddc3..8cac782 100644
+--- a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.spec.ts
+@@ -4,6 +4,7 @@ import { FieldView } from "@bitwarden/common/vault/models/view/field.view";
+ import { LoginView } from "@bitwarden/common/vault/models/view/login.view";
+ 
+ import {
++  isSmartfillRecipeFieldName,
+   parseSmartfillRecipe,
+   resolveSmartfillSteps,
+   resolveSmartfillValue,
+@@ -11,6 +12,7 @@ import {
+   smartfillFoldText,
+   smartfillHasRecipe,
+   smartfillNormalizeLabel,
++  smartfillRecipeField,
+   smartfillStepSelector,
+   smartfillStepTimeout,
+ } from "./smartfill-recipe-format";
+@@ -140,12 +142,38 @@ describe("values", () => {
+     ).resolves.toEqual({ value: "123456", kind: "totp" });
+   });
+ 
++  it("reads taviri:recipe and grokbot:recipe; with both, taviri:recipe wins", () => {
++    const steps = (selector: string) => JSON.stringify({ steps: [{ click: selector }] });
++    const firstClick = (fields: FieldView[]) =>
++      (parseSmartfillRecipe(login(fields)) as { steps: { click: string }[] })?.steps?.[0]?.click;
++    expect(firstClick([field("taviri:recipe", steps("#new"))])).toBe("#new");
++    expect(firstClick([field("grokbot:recipe", steps("#old"))])).toBe("#old");
++    expect(
++      firstClick([field("grokbot:recipe", steps("#old")), field("Tavirí:Récipe ", steps("#new"))]),
++    ).toBe("#new");
++    // An empty taviri:recipe does not hide a filled grokbot:recipe (as in the connector).
++    expect(firstClick([field("taviri:recipe", "  "), field("grokbot:recipe", steps("#old"))])).toBe(
++      "#old",
++    );
++    expect(smartfillHasRecipe(login([field("TAVIRI:RECIPE", steps("#a"))]))).toBe(true);
++    expect(isSmartfillRecipeFieldName("taviri:recipe")).toBe(true);
++    expect(isSmartfillRecipeFieldName("GrokBot:Recipe")).toBe(true);
++    expect(isSmartfillRecipeFieldName("taviri:icon")).toBe(false);
++    expect(smartfillRecipeField(login([field("Taviri:Recipe", steps("#a"))]))?.name).toBe(
++      "Taviri:Recipe",
++    );
++  });
++
+   it("never offers the recipe or linked fields as extra fields", async () => {
+     expect(smartfillExtraFields(cipher).map((f) => f.name)).toEqual([
+       "Numéro fiscal",
+       "Code confidentiel",
+     ]);
+-    const withIcon = login([field("Taviri:Icon", "vault"), field("Code confidentiel", "4321")]);
++    const withIcon = login([
++      field("Taviri:Icon", "vault"),
++      field("taviri:recipe", '{"steps":[{"click":"#a"}]}'),
++      field("Code confidentiel", "4321"),
++    ]);
+     expect(smartfillExtraFields(withIcon).map((f) => f.name)).toEqual(["Code confidentiel"]);
+     await expect(resolveSmartfillValue(cipher, "field:grokbot:recipe", noTotp)).resolves.toEqual({
+       error: 'the login has no custom field "grokbot:recipe"',
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts
+index bf0a7c7..bb0fc70 100644
+--- a/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-format.ts
+@@ -1,9 +1,10 @@
+ /**
+  * Smartfill fork (unofficial, personal build) — saved entry steps ("recipes") and extra login
+- * fields. The format is shared with the Grok Bot Bitwarden connector
++ * fields. The format is shared with the Taviri (Grok Bot) connector
+  * (`docs/recipes.md`); keep both implementations in sync.
+  *
+- * A login opts in with a custom field named `grokbot:recipe` whose value is JSON:
++ * A login opts in with a custom field named `taviri:recipe` (the first name, `grokbot:recipe`,
++ * still works; with both, `taviri:recipe` wins) whose value is JSON:
+  * `{"steps": [{"fill": "username", "into": "#id"}, {"click": "#next"}, ...]}` (a bare array of
+  * steps is accepted too).
+  */
+@@ -15,7 +16,10 @@ import { smartfillFoldText } from "./smartfill-text";
+ 
+ export { smartfillFoldText, smartfillNormalizeLabel } from "./smartfill-text";
+ 
+-export const SMARTFILL_RECIPE_FIELD_NAME = "grokbot:recipe";
++/** The custom field names that hold a recipe, preferred first (folded: lower case, no accents). */
++export const SMARTFILL_RECIPE_FIELD_NAMES: readonly string[] = ["taviri:recipe", "grokbot:recipe"];
++/** The name to use for new recipes. */
++export const SMARTFILL_RECIPE_FIELD_NAME = SMARTFILL_RECIPE_FIELD_NAMES[0];
+ export const SMARTFILL_MAX_RECIPE_STEPS = 40;
+ export const SMARTFILL_MAX_TIMEOUT_MS = 30000;
+ export const SMARTFILL_DEFAULT_TIMEOUT_MS = 5000;
+@@ -67,9 +71,24 @@ export type SmartfillResolvedStep = {
+ export type SmartfillRecipe = { steps: SmartfillRecipeStep[] };
+ export type SmartfillRecipeParseResult = SmartfillRecipe | { error: string } | null;
+ 
+-/** True for the custom field that holds the recipe (case- and accent-insensitive). */
++/** True for a custom field that holds a recipe: `taviri:recipe` or `grokbot:recipe` (case- and accent-insensitive). */
+ export function isSmartfillRecipeFieldName(name: unknown): boolean {
+-  return smartfillFoldText(name) === SMARTFILL_RECIPE_FIELD_NAME;
++  return SMARTFILL_RECIPE_FIELD_NAMES.includes(smartfillFoldText(name));
++}
++
++/**
++ * The recipe field to use: among the recipe fields that have a value, `taviri:recipe` first, else
++ * the first one. Same choice as the connector's `itemRecipe`.
++ */
++export function smartfillRecipeField(
++  cipher: CipherView | null | undefined,
++): { name?: string | null; value?: string | null } | undefined {
++  const withValue = (cipher?.fields ?? []).filter(
++    (f) => f && isSmartfillRecipeFieldName(f.name) && String(f.value ?? "").trim(),
++  );
++  return (
++    withValue.find((f) => smartfillFoldText(f.name) === SMARTFILL_RECIPE_FIELD_NAME) ?? withValue[0]
++  );
+ }
+ 
+ /** Returns the step's kind, or "" when the step is not one of the five kinds. */
+@@ -93,9 +112,8 @@ export function parseSmartfillRecipe(
+   if (!cipher || cipher.type !== CipherType.Login) {
+     return null;
+   }
+-  const field = (cipher.fields ?? []).find((f) => isSmartfillRecipeFieldName(f?.name));
+-  const raw = field?.value;
+-  if (!field || raw == null || !String(raw).trim()) {
++  const raw = smartfillRecipeField(cipher)?.value;
++  if (raw == null || !String(raw).trim()) {
+     return null;
+   }
+ 
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts
+index ac33d5f..0417b17 100644
+--- a/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe-runner.ts
+@@ -1,5 +1,5 @@
+ /**
+- * Smartfill fork — runs a login's saved entry steps ("grokbot:recipe") inside one frame.
++ * Smartfill fork — runs a login's saved entry steps ("taviri:recipe") inside one frame.
+  *
+  * Runs as part of the autofill content script (no Angular, direct `chrome.*` use). The background
+  * resolves the values, checks the frame against the login's saved addresses and picks the frame;
+diff --git a/apps/browser/src/autofill/smartfill/smartfill-recipe.background.ts b/apps/browser/src/autofill/smartfill/smartfill-recipe.background.ts
+index efb0e86..e4affe5 100644
+--- a/apps/browser/src/autofill/smartfill/smartfill-recipe.background.ts
++++ b/apps/browser/src/autofill/smartfill/smartfill-recipe.background.ts
+@@ -1,5 +1,5 @@
+ /**
+- * Smartfill fork — background side of saved entry steps ("grokbot:recipe").
++ * Smartfill fork — background side of saved entry steps ("taviri:recipe", or "grokbot:recipe").
+  *
+  * Decides whether a fill runs a recipe, resolves the values, picks the frame, sends the steps to
+  * the content script and follows the run. When a click or key press loads a new page, the run is
+@@ -35,6 +35,8 @@ import {
+ import {
+   parseSmartfillRecipe,
+   resolveSmartfillSteps,
++  SMARTFILL_RECIPE_FIELD_NAME,
++  smartfillRecipeField,
+   SmartfillRecipeStep,
+   SmartfillResolvedStep,
+   smartfillStepSelector,
+@@ -145,7 +147,7 @@ export class SmartfillRecipeBackground {
+       this.showNotice(
+         request.tab,
+         candidates[0],
+-        `The saved entry steps ("grokbot:recipe") of this login can't be used: ${parsed.error}. Fix the field in Bitwarden.`,
++        `The saved entry steps ("${smartfillRecipeField(request.cipher)?.name ?? SMARTFILL_RECIPE_FIELD_NAME}") of this login can't be used: ${parsed.error}. Fix the field in your vault.`,
+       );
+       return AutofillOutcome.Denied;
+     }
+diff --git a/apps/browser/src/background/main.background.ts b/apps/browser/src/background/main.background.ts
+index 271335b..6983913 100644
+--- a/apps/browser/src/background/main.background.ts
++++ b/apps/browser/src/background/main.background.ts
+@@ -1356,7 +1356,7 @@ export default class MainBackground {
+       this.authService,
+       this.logService,
+     );
+-    // Smartfill fork: saved entry steps ("grokbot:recipe") for logins with unusual sign-in pages.
++    // Smartfill fork: saved entry steps ("taviri:recipe") for logins with unusual sign-in pages.
+     this.smartfillRecipeBackground = new SmartfillRecipeBackground(
+       this.logService,
+       this.authService,

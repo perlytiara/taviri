@@ -1,0 +1,7 @@
+[Unit]
+Description=pi-vault health check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vaultctl status --quiet
+SuccessExitStatus=1 2
